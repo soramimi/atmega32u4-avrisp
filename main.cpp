@@ -64,6 +64,12 @@ void usb_poll_rx()
 	}
 }
 
+void usb_poll()
+{
+	usb_poll_tx();
+	usb_poll_rx();
+}
+
 #define PROG_FLICKER true
 
 #define LOW 0
@@ -286,13 +292,11 @@ void usb_write_byte(char c)
 			data_tx_buffer[i] = c;
 			data_tx_buffer_n++;
 			if (data_tx_buffer_n >= TX_EP_SIZE) {
-				usb_poll_tx();
-				usb_poll_rx();
+				usb_poll();
 			}
 			return;
 		}
-		usb_poll_tx();
-		usb_poll_rx();
+		usb_poll();
 	}
 }
 
@@ -462,8 +466,7 @@ void reset_target(bool reset)
 uint8_t getch()
 {
 	while (!usb_read_available()) {
-		usb_poll_tx();
-		usb_poll_rx();
+		usb_poll();
 	}
 	return usb_read_byte();
 }
@@ -1030,8 +1033,7 @@ void setup()
 
 void loop()
 {
-	usb_poll_tx();
-	usb_poll_rx();
+	usb_poll();
 #if 1
 	isp_loop();
 #else
