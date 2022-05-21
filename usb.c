@@ -72,9 +72,9 @@ extern void led(char f);
 #define DATA_IN_ENDPOINT 4
 
 static const uint8_t PROGMEM endpoint_config_table[] = {
-	COMM_IN_ENDPOINT, EP_TYPE_INTERRUPT_IN, EP_SIZE(8) | EP_DOUBLE_BUFFER,
-	DATA_OUT_ENDPOINT, EP_TYPE_BULK_OUT, EP_SIZE(8) | EP_DOUBLE_BUFFER,
-	DATA_IN_ENDPOINT, EP_TYPE_BULK_IN, EP_SIZE(8) | EP_DOUBLE_BUFFER,
+	COMM_IN_ENDPOINT, EP_TYPE_INTERRUPT_IN, EP_SIZE(16) | EP_DOUBLE_BUFFER,
+	DATA_OUT_ENDPOINT, EP_TYPE_BULK_OUT, EP_SIZE(RX_EP_SIZE) | EP_DOUBLE_BUFFER,
+	DATA_IN_ENDPOINT, EP_TYPE_BULK_IN, EP_SIZE(16) | EP_DOUBLE_BUFFER,
 	0,
 };
 
@@ -147,7 +147,7 @@ PROGMEM const uint8_t config1_descriptor[] = {
 	4,
 	0x24,
 	2,
-	0x06,
+	0x02,
 
 	// CDC Union
 	5,
@@ -299,7 +299,7 @@ int8_t usb_send_to_host(uint8_t ep, char const *ptr, uint8_t len)
 	for (i = 0; i < len; i++) {
 		UEDATX = ptr[i];
 	}
-	UEINTX = 0x3A;
+	UEINTX = 0x3a;
 	idle_count = 0;
 	SREG = intr_state;
 	return 0;
@@ -319,6 +319,7 @@ uint8_t usb_data_rx(char *ptr, uint8_t len)
 	uint8_t intr_state = SREG;
 	cli();
 	UENUM = ep;
+#if 0
 	uint8_t ueintx = UEINTX;
 	if (ueintx & (1 << RXOUTI)) {
 		if (ueintx & (1 << RWAL)) {
@@ -329,7 +330,22 @@ uint8_t usb_data_rx(char *ptr, uint8_t len)
 			}
 		}
 	}
-	UEINTX = 0x3A;
+#else
+	uint8_t ueintx = UEINTX;
+	if ((ueintx & (1 << RXOUTI)) && (ueintx & (1 << RWAL))) {
+//	if (ueintx & (1 << RXOUTI)) {
+		n = UEBCLX;
+		if (n > len) {
+			n = len;
+		}
+		for (uint8_t i = 0; i < n; i++) {
+			ptr[i] = UEDATX;
+		}
+		if (n > 0 && UEBCLX == 0) {
+		}
+		UEINTX = 0x6b;
+	}
+#endif
 	SREG = intr_state;
 	return n;
 }
@@ -345,17 +361,23 @@ uint8_t usb_data_rx(char *ptr, uint8_t len)
 //
 void usb_gen_vect()
 {
-	uint8_t intbits;
-
-	intbits = UDINT;
+	uint8_t udint = UDINT;
 	UDINT = 0;
-	if (intbits & (1 << EORSTI)) {
+
+	if (udint & (1 << EORSTI)) {
 		UENUM = 0;
 		UECONX = 1;
 		UECFG0X = EP_TYPE_CONTROL;
 		UECFG1X = EP_SIZE(ENDPOINT0_SIZE) | EP_SINGLE_BUFFER;
 		UEIENX = (1 << RXSTPE);
 		usb_configuration = 0;
+	}
+
+	if (udint & (1 << SOFI)) {
+		UENUM = DATA_OUT_ENDPOINT;
+		if (UEBCLX != 0) {
+			UEINTX = 0x6b;
+		}
 	}
 }
 

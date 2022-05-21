@@ -28,33 +28,42 @@
 #include <string.h>
 
 
-uint8_t data_tx_buffer[32];
 uint8_t data_tx_buffer_i;
 uint8_t data_tx_buffer_n;
 
-uint8_t data_rx_buffer[32];
 uint8_t data_rx_buffer_i;
 uint8_t data_rx_buffer_n;
 
-void usb_poll()
+uint8_t data_tx_buffer[64];
+uint8_t data_rx_buffer[64];
+
+bool tx_enabled = false;
+
+void usb_poll_tx()
 {
 	char tmp[32];
-
-	uint8_t n = usb_data_rx(tmp, sizeof(tmp) - data_rx_buffer_n);
-	for (uint8_t i = 0; i < n; i++) {
-		if (data_rx_buffer_n < sizeof(data_rx_buffer)) {
-			int j = (data_rx_buffer_i + data_rx_buffer_n) % sizeof(data_rx_buffer);
-			data_rx_buffer[j] = tmp[i];
-			data_rx_buffer_n++;
-		}
-	}
-
 	for (uint8_t i = 0; i < data_tx_buffer_n; i++) {
 		tmp[i] = data_tx_buffer[data_tx_buffer_i];
 		data_tx_buffer_i = (data_tx_buffer_i + 1) % sizeof(data_tx_buffer);
 	}
 	usb_data_tx(tmp, data_tx_buffer_n);
 	data_tx_buffer_n = 0;
+}
+
+void usb_poll_rx()
+{
+	char tmp[RX_EP_SIZE];
+	uint8_t n = sizeof(data_rx_buffer) - data_rx_buffer_n;
+	if (n >= RX_EP_SIZE) {
+		n = usb_data_rx(tmp, n);
+		for (uint8_t i = 0; i < n; i++) {
+//			if (data_rx_buffer_n < sizeof(data_rx_buffer)) {
+				int j = (data_rx_buffer_i + data_rx_buffer_n) % sizeof(data_rx_buffer);
+				data_rx_buffer[j] = tmp[i];
+				data_rx_buffer_n++;
+//			}
+		}
+	}
 }
 
 #define PROG_FLICKER true
@@ -126,30 +135,6 @@ void usb_poll()
 #define PIN_MOSI 2
 #define PIN_MISO 3
 #define PIN_SCK 4
-
-void delay(int ms)
-{
-	while (ms >= 10) {
-		_delay_ms(10);
-		ms -= 10;
-	}
-	while (ms > 0) {
-		_delay_ms(1);
-		ms--;
-	}
-}
-
-void delayMicroseconds(int us)
-{
-	while (us >= 10) {
-		_delay_us(10);
-		us -= 10;
-	}
-	while (us > 0) {
-		_delay_us(1);
-		us--;
-	}
-}
 
 void pinMode(char pin, char value)
 {
@@ -313,10 +298,32 @@ void usb_write_string(char const *p)
 		if (usb_write_byte(*p)) {
 			p++;
 		} else {
-			usb_poll();
+			usb_poll_rx();
 		}
 	}
 }
+
+void sleep_ms(int ms)
+{
+	while (ms > 0) {
+		_delay_ms(1);
+		usb_poll_rx();
+		ms--;
+	}
+}
+
+void sleep_us(int us)
+{
+	while (us >= 10) {
+		_delay_us(10);
+		us -= 10;
+	}
+	while (us > 0) {
+		_delay_us(1);
+		us--;
+	}
+}
+
 
 #ifdef USE_HARDWARE_SPI
 #include "SPI.h"
@@ -384,11 +391,11 @@ public:
 		for (uint8_t i = 0; i < 8; ++i) {
 			digitalWrite(PIN_MOSI, (b & 0x80) ? HIGH : LOW);
 			digitalWrite(PIN_SCK, HIGH);
-			usb_poll();
+			usb_poll_rx();
 //			_delay_us(1);
 			b = (b << 1) | digitalRead(PIN_MISO);
 			digitalWrite(PIN_SCK, LOW); // slow pulse
-			usb_poll();
+			usb_poll_rx();
 //			_delay_us(1);
 		}
 		return b;
@@ -456,7 +463,7 @@ void reset_target(bool reset)
 uint8_t getch()
 {
 	while (!usb_read_available()) {
-		usb_poll();
+		usb_poll_rx();
 	}
 	return usb_read_byte();
 }
@@ -473,9 +480,9 @@ void pulse_pmode(int times)
 	return;
 	do {
 		led_pmode(true);
-		delay(PTIME);
+		sleep_ms(PTIME);
 		led_pmode(false);
-		delay(PTIME);
+		sleep_ms(PTIME);
 	} while (times--);
 }
 
@@ -484,9 +491,9 @@ void pulse_error(int times)
 	return;
 	do {
 		led_error(true);
-		delay(PTIME);
+		sleep_ms(PTIME);
 		led_error(false);
-		delay(PTIME);
+		sleep_ms(PTIME);
 	} while (times--);
 }
 
@@ -594,15 +601,15 @@ void start_pmode()
 
 	// Pulse RESET after PIN_SCK is low:
 	digitalWrite(PIN_SCK, LOW);
-	delay(20); // discharge PIN_SCK, value arbitrarily chosen
+	sleep_ms(20); // discharge PIN_SCK, value arbitrarily chosen
 	reset_target(false);
 	// Pulse must be minimum 2 target CPU clock cycles so 100 usec is ok for CPU
 	// speeds above 20 KHz
-	delayMicroseconds(100);
+	sleep_us(100);
 	reset_target(true);
 
 	// Send the enable programming command:
-	delay(50); // datasheet: must be > 20 msec
+	sleep_ms(50); // datasheet: must be > 20 msec
 	spi_transaction(0xAC, 0x53, 0x00, 0x00);
 	pmode = 1;
 }
@@ -638,7 +645,7 @@ void commit(unsigned int addr)
 	}
 	spi_transaction(0x4C, (addr >> 8) & 0xFF, addr & 0xFF, 0);
 	if (PROG_FLICKER) {
-		delay(PTIME);
+		sleep_ms(PTIME);
 		prog_lamp(HIGH);
 	}
 }
@@ -700,7 +707,7 @@ uint8_t write_eeprom_chunk(unsigned int start, unsigned int length)
 	for (unsigned int x = 0; x < length; x++) {
 		unsigned int addr = start + x;
 		spi_transaction(0xC0, (addr >> 8) & 0xFF, addr & 0xFF, buff[x]);
-		delay(45);
+		sleep_ms(45);
 	}
 	prog_lamp(HIGH);
 	return STK_OK;
@@ -759,7 +766,7 @@ uint8_t flash_read(uint8_t hilo, unsigned int addr)
 char flash_read_page(int length)
 {
 	for (int x = 0; x < length; x += 2) {
-		usb_poll();
+		usb_poll_rx();
 		uint8_t low = flash_read(LOW, here);
 		usb_write_byte((char)low);
 		uint8_t high = flash_read(HIGH, here);
@@ -896,6 +903,14 @@ void avrisp()
 		read_signature();
 		break;
 
+	case 'z':
+		if (!pmode) {
+			start_pmode();
+		}
+		read_signature();
+		end_pmode();
+		break;
+
 	// expecting a command, not CRC_EOP
 	// this is how we can get back in sync
 	case CRC_EOP:
@@ -1023,14 +1038,15 @@ void setup()
 
 void loop()
 {
-	usb_poll();
+	usb_poll_tx();
+	usb_poll_rx();
 #if 1
 	isp_loop();
 #else
 	if (usb_read_available()) {
 		char c = usb_read_byte();
 		usb_write_byte(c);
-		delay(10);
+		sleep_ms(10);
 	}
 #endif
 }

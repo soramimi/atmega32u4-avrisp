@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+#define RX_EP_SIZE 16
+
 void usb_init(void); // initialize everything
 uint8_t usb_configured(void); // is the USB port configured
 
