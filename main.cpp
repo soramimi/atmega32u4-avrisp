@@ -34,17 +34,18 @@ uint8_t data_tx_buffer_n;
 uint8_t data_rx_buffer_i;
 uint8_t data_rx_buffer_n;
 
-uint8_t data_tx_buffer[64];
-uint8_t data_rx_buffer[64];
+uint8_t data_tx_buffer[TX_EP_SIZE];
+uint8_t data_rx_buffer[RX_EP_SIZE];
 
 bool tx_enabled = false;
 
 void usb_poll_tx()
 {
-	char tmp[32];
+
+	char tmp[TX_EP_SIZE];
 	for (uint8_t i = 0; i < data_tx_buffer_n; i++) {
 		tmp[i] = data_tx_buffer[data_tx_buffer_i];
-		data_tx_buffer_i = (data_tx_buffer_i + 1) % sizeof(data_tx_buffer);
+		data_tx_buffer_i = (data_tx_buffer_i + 1) % TX_EP_SIZE;
 	}
 	usb_data_tx(tmp, data_tx_buffer_n);
 	data_tx_buffer_n = 0;
@@ -52,10 +53,9 @@ void usb_poll_tx()
 
 void usb_poll_rx()
 {
-	char tmp[RX_EP_SIZE];
-	uint8_t n = sizeof(data_rx_buffer) - data_rx_buffer_n;
-	if (n >= RX_EP_SIZE) {
-		n = usb_data_rx(tmp, n);
+	if (sizeof(data_rx_buffer) - data_rx_buffer_n >= RX_EP_SIZE) {
+		char tmp[RX_EP_SIZE];
+		uint8_t n = usb_data_rx(tmp, RX_EP_SIZE);
 		for (uint8_t i = 0; i < n; i++) {
 //			if (data_rx_buffer_n < sizeof(data_rx_buffer)) {
 				int j = (data_rx_buffer_i + data_rx_buffer_n) % sizeof(data_rx_buffer);
@@ -283,8 +283,8 @@ char usb_read_byte()
 
 bool usb_write_byte(char c)
 {
-	if (data_tx_buffer_n < sizeof(data_tx_buffer)) {
-		int8_t i = (data_tx_buffer_i + data_tx_buffer_n) % sizeof(data_tx_buffer);
+	if (data_tx_buffer_n < TX_EP_SIZE) {
+		int8_t i = (data_tx_buffer_i + data_tx_buffer_n) % TX_EP_SIZE;
 		data_tx_buffer[i] = c;
 		data_tx_buffer_n++;
 		return true;

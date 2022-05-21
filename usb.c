@@ -72,9 +72,9 @@ extern void led(char f);
 #define DATA_IN_ENDPOINT 4
 
 static const uint8_t PROGMEM endpoint_config_table[] = {
-	COMM_IN_ENDPOINT, EP_TYPE_INTERRUPT_IN, EP_SIZE(16) | EP_DOUBLE_BUFFER,
+	COMM_IN_ENDPOINT, EP_TYPE_INTERRUPT_IN, EP_SIZE(COMM_EP_SIZE) | EP_DOUBLE_BUFFER,
 	DATA_OUT_ENDPOINT, EP_TYPE_BULK_OUT, EP_SIZE(RX_EP_SIZE) | EP_DOUBLE_BUFFER,
-	DATA_IN_ENDPOINT, EP_TYPE_BULK_IN, EP_SIZE(16) | EP_DOUBLE_BUFFER,
+	DATA_IN_ENDPOINT, EP_TYPE_BULK_IN, EP_SIZE(TX_EP_SIZE) | EP_DOUBLE_BUFFER,
 	0,
 };
 
@@ -160,7 +160,7 @@ PROGMEM const uint8_t config1_descriptor[] = {
 	5, // USBDESCR_ENDPOINT
 	COMM_IN_ENDPOINT | 0x80, // IN endpoint
 	0x03, // attrib: Interrupt endpoint
-	8, 0, // maximum packet size
+	COMM_EP_SIZE, 0, // maximum packet size
 	255, // USB_CFG_INTR_POLL_INTERVAL
 
 	// data interface
@@ -179,14 +179,14 @@ PROGMEM const uint8_t config1_descriptor[] = {
 	5,
 	DATA_IN_ENDPOINT | 0x80, // IN
 	0x02, // bulk
-	8, 0, // maximum packet size
+	TX_EP_SIZE, 0, // maximum packet size
 	0, // USB_CFG_INTR_POLL_INTERVAL
 
 	7, // sizeof(usbDescrEndpoint)
 	5,
 	DATA_OUT_ENDPOINT, // OUT
 	0x02, // bulk
-	8, 0, // maximum packet size
+	RX_EP_SIZE, 0, // maximum packet size
 	0, // USB_CFG_INTR_POLL_INTERVAL
 };
 
@@ -342,8 +342,8 @@ uint8_t usb_data_rx(char *ptr, uint8_t len)
 			ptr[i] = UEDATX;
 		}
 		if (n > 0 && UEBCLX == 0) {
+			UEINTX = 0x6b;
 		}
-		UEINTX = 0x6b;
 	}
 #endif
 	SREG = intr_state;

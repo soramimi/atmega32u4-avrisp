@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+#define COMM_EP_SIZE 16
+#define TX_EP_SIZE 16
 #define RX_EP_SIZE 16
 
 void usb_init(void); // initialize everything
