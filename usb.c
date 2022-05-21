@@ -307,8 +307,9 @@ int8_t usb_send_to_host(uint8_t ep, char const *ptr, uint8_t len)
 
 void usb_data_tx(char const *ptr, uint8_t len)
 {
-	if (!ptr && len < 1) return;
-	usb_send_to_host(DATA_IN_ENDPOINT, ptr, len);
+	if (ptr && len > 0) {
+		usb_send_to_host(DATA_IN_ENDPOINT, ptr, len);
+	}
 }
 
 uint8_t usb_data_rx(char *ptr, uint8_t len)
@@ -333,6 +334,7 @@ uint8_t usb_data_rx(char *ptr, uint8_t len)
 #else
 	uint8_t ueintx = UEINTX;
 	if ((ueintx & (1 << RXOUTI)) && (ueintx & (1 << RWAL))) {
+//	if ((ueintx & (1 << RWAL))) {
 //	if (ueintx & (1 << RXOUTI)) {
 		n = UEBCLX;
 		if (n > len) {

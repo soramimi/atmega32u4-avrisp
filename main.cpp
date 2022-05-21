@@ -28,20 +28,19 @@
 #include <string.h>
 
 
+uint8_t data_tx_buffer[TX_EP_SIZE];
 uint8_t data_tx_buffer_i;
 uint8_t data_tx_buffer_n;
 
+uint8_t data_rx_buffer[RX_EP_SIZE * 4];
 uint8_t data_rx_buffer_i;
 uint8_t data_rx_buffer_n;
 
-uint8_t data_tx_buffer[TX_EP_SIZE];
-uint8_t data_rx_buffer[RX_EP_SIZE];
 
 bool tx_enabled = false;
 
 void usb_poll_tx()
 {
-
 	char tmp[TX_EP_SIZE];
 	for (uint8_t i = 0; i < data_tx_buffer_n; i++) {
 		tmp[i] = data_tx_buffer[data_tx_buffer_i];
@@ -53,15 +52,14 @@ void usb_poll_tx()
 
 void usb_poll_rx()
 {
-	if (sizeof(data_rx_buffer) - data_rx_buffer_n >= RX_EP_SIZE) {
+	while (sizeof(data_rx_buffer) - data_rx_buffer_n >= RX_EP_SIZE) {
 		char tmp[RX_EP_SIZE];
 		uint8_t n = usb_data_rx(tmp, RX_EP_SIZE);
+		if (n == 0) break;
 		for (uint8_t i = 0; i < n; i++) {
-//			if (data_rx_buffer_n < sizeof(data_rx_buffer)) {
-				int j = (data_rx_buffer_i + data_rx_buffer_n) % sizeof(data_rx_buffer);
-				data_rx_buffer[j] = tmp[i];
-				data_rx_buffer_n++;
-//			}
+			int j = (data_rx_buffer_i + data_rx_buffer_n) % sizeof(data_rx_buffer);
+			data_rx_buffer[j] = tmp[i];
+			data_rx_buffer_n++;
 		}
 	}
 }
@@ -264,7 +262,6 @@ void led_error(bool f)
 
 
 
-
 bool usb_read_available()
 {
 	return data_rx_buffer_n > 0;
@@ -281,25 +278,29 @@ char usb_read_byte()
 	return 0;
 }
 
-bool usb_write_byte(char c)
+void usb_write_byte(char c)
 {
-	if (data_tx_buffer_n < TX_EP_SIZE) {
-		int8_t i = (data_tx_buffer_i + data_tx_buffer_n) % TX_EP_SIZE;
-		data_tx_buffer[i] = c;
-		data_tx_buffer_n++;
-		return true;
+	while (1) {
+		if (data_tx_buffer_n < sizeof(data_tx_buffer)) {
+			int8_t i = (data_tx_buffer_i + data_tx_buffer_n) % sizeof(data_tx_buffer);
+			data_tx_buffer[i] = c;
+			data_tx_buffer_n++;
+			if (data_tx_buffer_n >= TX_EP_SIZE) {
+				usb_poll_tx();
+				usb_poll_rx();
+			}
+			return;
+		}
+		usb_poll_tx();
+		usb_poll_rx();
 	}
-	return false;
 }
 
 void usb_write_string(char const *p)
 {
 	while (*p) {
-		if (usb_write_byte(*p)) {
-			p++;
-		} else {
-			usb_poll_rx();
-		}
+		usb_write_byte(*p);
+		p++;
 	}
 }
 
@@ -351,7 +352,7 @@ private:
 };
 #endif // !defined(ARDUINO_API_VERSION)
 
-#if 0
+#if 1
 class SPI {
 public:
 	void begin()
@@ -391,12 +392,10 @@ public:
 		for (uint8_t i = 0; i < 8; ++i) {
 			digitalWrite(PIN_MOSI, (b & 0x80) ? HIGH : LOW);
 			digitalWrite(PIN_SCK, HIGH);
-			usb_poll_rx();
-//			_delay_us(1);
+			_delay_us(1);
 			b = (b << 1) | digitalRead(PIN_MISO);
 			digitalWrite(PIN_SCK, LOW); // slow pulse
-			usb_poll_rx();
-//			_delay_us(1);
+			_delay_us(1);
 		}
 		return b;
 	}
@@ -463,6 +462,7 @@ void reset_target(bool reset)
 uint8_t getch()
 {
 	while (!usb_read_available()) {
+		usb_poll_tx();
 		usb_poll_rx();
 	}
 	return usb_read_byte();
@@ -585,7 +585,6 @@ void set_parameters()
 
 void start_pmode()
 {
-
 	// Reset target before driving PIN_SCK or PIN_MOSI
 
 	// SPI.begin() will configure SS as output, so SPI master mode is selected.
@@ -672,6 +671,7 @@ uint8_t write_flash_pages(int length)
 	int x = 0;
 	unsigned int page = current_page();
 	while (x < length) {
+		usb_poll_rx();
 		if (page != current_page()) {
 			commit(page);
 			page = current_page();
@@ -901,14 +901,6 @@ void avrisp()
 
 	case 0x75: // STK_READ_SIGN 'u'
 		read_signature();
-		break;
-
-	case 'z':
-		if (!pmode) {
-			start_pmode();
-		}
-		read_signature();
-		end_pmode();
 		break;
 
 	// expecting a command, not CRC_EOP
