@@ -28,9 +28,6 @@
 #include <string.h>
 
 
-
-uint8_t comm_tx_buffer[32];
-
 uint8_t data_tx_buffer[32];
 uint8_t data_tx_buffer_i;
 uint8_t data_tx_buffer_n;
@@ -43,11 +40,11 @@ void usb_poll()
 {
 	char tmp[32];
 
-	uint8_t n = usb_data_rx(tmp, sizeof(tmp));
+	uint8_t n = usb_data_rx(tmp, sizeof(tmp) - data_rx_buffer_n);
 	for (uint8_t i = 0; i < n; i++) {
 		if (data_rx_buffer_n < sizeof(data_rx_buffer)) {
 			int j = (data_rx_buffer_i + data_rx_buffer_n) % sizeof(data_rx_buffer);
-			data_rx_buffer[j] = tmp[j];
+			data_rx_buffer[j] = tmp[i];
 			data_rx_buffer_n++;
 		}
 	}
@@ -95,7 +92,6 @@ void usb_poll()
 // The standard pin configuration.
 #ifndef ARDUINO_HOODLOADER2
 
-#define RESET 16 // Use pin 10 to reset the target rather than SS
 #define LED_HB 9
 #define LED_ERR 8
 #define LED_PMODE 7
@@ -126,16 +122,10 @@ void usb_poll()
 
 // By default, use hardware SPI pins:
 //#ifndef PIN_MOSI
-#define PIN_MOSI 17
-//#endif
-
-//#ifndef PIN_MISO
-#define PIN_MISO 18
-//#endif
-
-//#ifndef PIN_SCK
-#define PIN_SCK 19
-//#endif
+#define PIN_RESET 1
+#define PIN_MOSI 2
+#define PIN_MISO 3
+#define PIN_SCK 4
 
 void delay(int ms)
 {
@@ -164,17 +154,25 @@ void delayMicroseconds(int us)
 void pinMode(char pin, char value)
 {
 	switch (pin) {
-	case RESET:
-		if (value) { DDRB |= 1 << 2; } else { DDRB &= ~(1 << 2); }
+	case PIN_RESET:
+		if (value) { DDRB |= 1 << 6; } else { DDRB &= ~(1 << 6); }
 		break;
 	case PIN_MOSI:
-		if (value) { DDRB |= 1 << 3; } else { DDRB &= ~(1 << 3); }
+		if (value) { DDRB |= 1 << 2; } else { DDRB &= ~(1 << 2); }
 		break;
 	case PIN_MISO:
-		if (value) { DDRB |= 1 << 4; } else { DDRB &= ~(1 << 4); }
+		if (value) { DDRB |= 1 << 3; } else { DDRB &= ~(1 << 3); }
 		break;
 	case PIN_SCK:
-		if (value) { DDRB |= 1 << 5; } else { DDRB &= ~(1 << 5); }
+		if (value) { DDRB |= 1 << 1; } else { DDRB &= ~(1 << 1); }
+		break;
+	case LED_HB:
+		break;
+	case LED_ERR:
+		if (value) { DDRB |= 1 << 0; } else { DDRB &= ~(1 << 0); }
+		break;
+	case LED_PMODE:
+		if (value) { DDRD |= 1 << 5; } else { DDRD &= ~(1 << 5); }
 		break;
 	}
 }
@@ -182,17 +180,25 @@ void pinMode(char pin, char value)
 void digitalWrite(char pin, char value)
 {
 	switch (pin) {
-	case RESET:
-		if (value) { PORTB |= 1 << 2; } else { PORTB &= ~(1 << 2); }
+	case PIN_RESET:
+		if (value) { PORTB |= 1 << 6; } else { PORTB &= ~(1 << 6); }
 		break;
 	case PIN_MOSI:
-		if (value) { PORTB |= 1 << 3; } else { PORTB &= ~(1 << 3); }
+		if (value) { PORTB |= 1 << 2; } else { PORTB &= ~(1 << 2); }
 		break;
 	case PIN_MISO:
-		if (value) { PORTB |= 1 << 4; } else { PORTB &= ~(1 << 4); }
+		if (value) { PORTB |= 1 << 3; } else { PORTB &= ~(1 << 3); }
 		break;
 	case PIN_SCK:
-		if (value) { PORTB |= 1 << 5; } else { PORTB &= ~(1 << 5); }
+		if (value) { PORTB |= 1 << 1; } else { PORTB &= ~(1 << 1); }
+		break;
+	case LED_HB:
+		break;
+	case LED_ERR:
+		if (value) { PORTB |= 1 << 0; } else { PORTB &= ~(1 << 0); }
+		break;
+	case LED_PMODE:
+		if (value) { PORTD |= 1 << 5; } else { PORTD &= ~(1 << 5); }
 		break;
 	}
 }
@@ -200,16 +206,32 @@ void digitalWrite(char pin, char value)
 bool digitalRead(char pin)
 {
 	switch (pin) {
-	case RESET:
-		return (PINB >> 2) & 1;
+	case PIN_RESET:
+		return (PINB >> 6) & 1;
 	case PIN_MOSI:
-		return (PINB >> 3) & 1;
+		return (PINB >> 2) & 1;
 	case PIN_MISO:
-		return (PINB >> 4) & 1;
+		return (PINB >> 3) & 1;
 	case PIN_SCK:
-		return (PINB >> 5) & 1;
+		return (PINB >> 1) & 1;
+	case LED_HB:
+		break;
+	case LED_ERR:
+		return (PINB >> 0) & 1;
+	case LED_PMODE:
+		return (PIND >> 5) & 1;
 	}
 	return false;
+}
+
+void led_pmode(bool f)
+{
+	digitalWrite(LED_PMODE, f ? LOW : HIGH); // low active
+}
+
+void led_error(bool f)
+{
+	digitalWrite(LED_ERR, f ? LOW : HIGH); // low active
 }
 
 // Force bitbanged SPI if not using the hardware SPI pins:
@@ -253,7 +275,6 @@ bool digitalRead(char pin)
 #define STK_NOSYNC 0x15
 #define CRC_EOP 0x20 // ok it is a space...
 
-void pulse(int pin, int times);
 
 
 
@@ -269,9 +290,10 @@ char usb_read_byte()
 	if (usb_read_available()) {
 		char c = data_rx_buffer[data_rx_buffer_i];
 		data_rx_buffer_i = (data_rx_buffer_i + 1) % sizeof(data_rx_buffer);
+		data_rx_buffer_n--;
 		return c;
 	}
-	return -1;
+	return 0;
 }
 
 bool usb_write_byte(char c)
@@ -288,9 +310,11 @@ bool usb_write_byte(char c)
 void usb_write_string(char const *p)
 {
 	while (*p) {
-		usb_write_byte(*p);
-		usb_poll();
-		p++;
+		if (usb_write_byte(*p)) {
+			p++;
+		} else {
+			usb_poll();
+		}
 	}
 }
 
@@ -320,7 +344,31 @@ private:
 };
 #endif // !defined(ARDUINO_API_VERSION)
 
-class BitBangedSPI {
+#if 0
+class SPI {
+public:
+	void begin()
+	{
+		digitalWrite(PIN_SCK, LOW);
+		digitalWrite(PIN_MOSI, LOW);
+		pinMode(PIN_SCK, OUTPUT);
+		pinMode(PIN_MOSI, OUTPUT);
+		pinMode(PIN_MISO, INPUT);
+
+		// SPI: Mode 0, F_CLK/128
+		SPCR = 0x53;
+		SPSR = 0x00;
+	}
+
+	uint8_t transfer(uint8_t b)
+	{
+		SPDR = b;
+		while (!(SPSR & 0x80));
+		return SPDR;
+	}
+};
+#else
+class SPI {
 public:
 	void begin()
 	{
@@ -331,34 +379,24 @@ public:
 		pinMode(PIN_MISO, INPUT);
 	}
 
-	void beginTransaction(SPISettings settings)
-	{
-		pulseWidth = (500000 + settings.getClockFreq() - 1) / settings.getClockFreq();
-		if (pulseWidth == 0) {
-			pulseWidth = 1;
-		}
-	}
-
-	void end() { }
-
 	uint8_t transfer(uint8_t b)
 	{
-		for (unsigned int i = 0; i < 8; ++i) {
+		for (uint8_t i = 0; i < 8; ++i) {
 			digitalWrite(PIN_MOSI, (b & 0x80) ? HIGH : LOW);
 			digitalWrite(PIN_SCK, HIGH);
-			delayMicroseconds(pulseWidth);
+			usb_poll();
+//			_delay_us(1);
 			b = (b << 1) | digitalRead(PIN_MISO);
 			digitalWrite(PIN_SCK, LOW); // slow pulse
-			delayMicroseconds(pulseWidth);
+			usb_poll();
+//			_delay_us(1);
 		}
 		return b;
 	}
-
-private:
-	unsigned long pulseWidth; // in microseconds
 };
+#endif
 
-static BitBangedSPI SPI;
+static SPI SPI;
 
 #endif
 
@@ -412,7 +450,7 @@ static bool rst_active_high;
 
 void reset_target(bool reset)
 {
-	digitalWrite(RESET, ((reset && rst_active_high) || (!reset && !rst_active_high)) ? HIGH : LOW);
+	digitalWrite(PIN_RESET, ((reset && rst_active_high) || (!reset && !rst_active_high)) ? HIGH : LOW);
 }
 
 uint8_t getch()
@@ -430,20 +468,32 @@ void fill(int n)
 }
 
 #define PTIME 30
-void pulse(int pin, int times)
+void pulse_pmode(int times)
 {
+	return;
 	do {
-		digitalWrite(pin, HIGH);
+		led_pmode(true);
 		delay(PTIME);
-		digitalWrite(pin, LOW);
+		led_pmode(false);
 		delay(PTIME);
 	} while (times--);
 }
 
-void prog_lamp(int state)
+void pulse_error(int times)
+{
+	return;
+	do {
+		led_error(true);
+		delay(PTIME);
+		led_error(false);
+		delay(PTIME);
+	} while (times--);
+}
+
+void prog_lamp(bool state)
 {
 	if (PROG_FLICKER) {
-		digitalWrite(LED_PMODE, state);
+		led_pmode(state);
 	}
 }
 
@@ -536,9 +586,9 @@ void start_pmode()
 	// So we have to configure RESET as output here,
 	// (reset_target() first sets the correct level)
 	reset_target(true);
-	pinMode(RESET, OUTPUT);
+	pinMode(PIN_RESET, OUTPUT);
 	SPI.begin();
-	SPI.beginTransaction(SPISettings(SPI_CLOCK, SPI_MODE0));
+//	SPI.beginTransaction(SPISettings(SPI_CLOCK, SPI_MODE0));
 
 	// See AVR datasheets, chapter "SERIAL_PRG Programming Algorithm":
 
@@ -559,12 +609,12 @@ void start_pmode()
 
 void end_pmode()
 {
-	SPI.end();
+//	SPI.end();
 	// We're about to take the target out of reset so configure SPI pins as input
 	pinMode(PIN_MOSI, INPUT);
 	pinMode(PIN_SCK, INPUT);
 	reset_target(false);
-	pinMode(RESET, INPUT);
+	pinMode(PIN_RESET, INPUT);
 	pmode = 0;
 }
 
@@ -579,10 +629,7 @@ void universal()
 
 void flash(uint8_t hilo, unsigned int addr, uint8_t data)
 {
-	spi_transaction(0x40 + 8 * hilo,
-		addr >> 8 & 0xFF,
-		addr & 0xFF,
-		data);
+	spi_transaction(0x40 + 8 * hilo, addr >> 8 & 0xFF, addr & 0xFF, data);
 }
 void commit(unsigned int addr)
 {
@@ -706,10 +753,7 @@ void program_page()
 
 uint8_t flash_read(uint8_t hilo, unsigned int addr)
 {
-	return spi_transaction(0x20 + hilo * 8,
-		(addr >> 8) & 0xFF,
-		addr & 0xFF,
-		0);
+	return spi_transaction(0x20 + hilo * 8, (addr >> 8) & 0xFF, addr & 0xFF, 0);
 }
 
 char flash_read_page(int length)
@@ -874,26 +918,26 @@ void isp_setup()
 {
 //	SERIAL_begin(/*BAUDRATE*/);
 	pinMode(LED_PMODE, OUTPUT);
-	pulse(LED_PMODE, 2);
+	pulse_pmode(2);
 	pinMode(LED_ERR, OUTPUT);
-	pulse(LED_ERR, 2);
-	pinMode(LED_HB, OUTPUT);
-	pulse(LED_HB, 2);
+	pulse_error(2);
+//	pinMode(LED_HB, OUTPUT);
+//	pulse(LED_HB, 2);
 }
 
 void isp_loop(void)
 {
 	// is pmode active?
 	if (pmode) {
-		digitalWrite(LED_PMODE, HIGH);
+		led_pmode(true);
 	} else {
-		digitalWrite(LED_PMODE, LOW);
+		led_pmode(false);
 	}
 	// is there an error?
 	if (ISPError) {
-		digitalWrite(LED_ERR, HIGH);
+		led_error(true);
 	} else {
-		digitalWrite(LED_ERR, LOW);
+		led_error(false);
 	}
 
 	// light the heartbeat LED
@@ -949,9 +993,11 @@ static inline int clamp(int v, int min, int max)
 void setup()
 {
 	// 16 MHz clock
-	CLKPR = 0x80; CLKPR = 0;
+	CLKPR = 0x80;
+	CLKPR = 0;
 	// Disable JTAG
-	MCUCR |= 0x80; MCUCR |= 0x80;
+	MCUCR |= 0x80;
+	MCUCR |= 0x80;
 
 	PORTB = 0x00;
 	PORTC = 0x00;
@@ -962,6 +1008,8 @@ void setup()
 
 	data_rx_buffer_i = 0;
 	data_rx_buffer_n = 0;
+	data_tx_buffer_i = 0;
+	data_tx_buffer_n = 0;
 
 	usb_init();
 	while (!usb_configured()) {
@@ -969,12 +1017,22 @@ void setup()
 	}
 
 	isp_setup();
+
+
 }
 
 void loop()
 {
 	usb_poll();
+#if 1
 	isp_loop();
+#else
+	if (usb_read_available()) {
+		char c = usb_read_byte();
+		usb_write_byte(c);
+		delay(10);
+	}
+#endif
 }
 
 int main()
@@ -985,10 +1043,4 @@ int main()
 		loop();
 	}
 }
-
-
-
-
-
-
 

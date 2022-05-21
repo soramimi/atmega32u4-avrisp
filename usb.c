@@ -520,15 +520,47 @@ void usb_com_vect()
 			}
 		}
 #endif
-//		if (wIndex == CDC_COMM_INTERFACE) {
-//			if (bmRequestType == 0xA1) {
-//			}
-//			if (bmRequestType == 0x21) {
-//			}
-//		} else if (wIndex == CDC_DATA_INTERFACE) {
-//			if (bRequest == HID_GET_REPORT && bmRequestType == 0xA1) {
-//			}
-//		}
+		if (wIndex == CDC_COMM_INTERFACE) {
+			static char line[7] = {0x00, 0x4b, 0x00, 0x00, 0, 0, 8}; // default: 19200bps
+			if (bmRequestType == 0x21) { // recv from host
+				if (bRequest == CDC_SET_LINE_CODING) {
+					led(1);
+					usb_wait_receive_out();
+					for (uint8_t i = 0; i < 7; i++) {
+						line[i] = UEDATX;
+					}
+					usb_ack_out();
+					usb_send_in();
+					return;
+				}
+			}
+			if (bmRequestType == 0xa1) { // send to host
+				if (bRequest == CDC_GET_LINE_CODING) {
+					len = 7;
+					i = 0;
+					while (i < len) {
+						uint8_t ueintx = UEINTX;
+						if (ueintx & (1 << RXOUTI)) return;
+						if (ueintx & (1 << TXINI)) {
+							n = len - i;
+							if (n > ENDPOINT0_SIZE) {
+								n = ENDPOINT0_SIZE;
+							}
+							while (n > 0) {
+								UEDATX = line[i++];
+								len--;
+								n--;
+							}
+							usb_send_in();
+						}
+					}
+					return;
+				}
+			}
+			if (bmRequestType == CDC_SET_CONTROL_LINE_STATE) {
+				return;
+			}
+		}
 	}
 	UECONX = (1 << STALLRQ) | (1 << EPEN); // stall
 }

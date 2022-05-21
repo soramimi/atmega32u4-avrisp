@@ -41,11 +41,11 @@
 # F_CPU = 16000000
 # B_LOADER = \"jmp\ 0x7000\"
 
-BOARD = .
-LAYOUT = test
-MCU = atmega32u2
+#BOARD = .
+#LAYOUT = test
+MCU = atmega32u4
 F_CPU = 16000000
-B_LOADER = \"jmp\ 0x7000\"
+#B_LOADER = \"jmp\ 0x7000\"
 
 #BOARD = sskb
 #LAYOUT = symmetric
@@ -139,7 +139,13 @@ clean:
 	rm *.hex
 
 write: main.hex
-	avrdude -c avrisp -P /dev/ttyUSB0 -b 19200 -p m32u2 -U hfuse:w:0xd9:m  -U lfuse:w:0x5e:m -U flash:w:main.hex
+	avrdude -c avrisp -P /dev/ttyUSB0 -b 19200 -p m32u4 -U hfuse:w:0xd9:m  -U lfuse:w:0x5e:m -U flash:w:main.hex
+
+fetch:
+	-avrdude -c avrisp -P /dev/ttyACM0 -b 19200 -p m32u2
 
 #	avrpi -w main.hex --avr-write-fuse-e f4 --avr-write-fuse-h d9 --avr-write-fuse-l 5e
 
+
+fetch2:
+	avrdude -c avrisp -P /dev/ttyUSB0 -b 19200 -p m32u2
