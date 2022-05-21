@@ -466,7 +466,7 @@ void reset_target(bool reset)
 uint8_t getch()
 {
 	while (!usb_read_available()) {
-		usb_poll();
+		usb_poll_rx();
 	}
 	return usb_read_byte();
 }
@@ -745,8 +745,7 @@ void program_page()
 	if (memtype == 'F') {
 		write_flash(length);
 		return;
-	}
-	if (memtype == 'E') {
+	} else if (memtype == 'E') {
 		result = (char)write_eeprom(length);
 		if (CRC_EOP == getch()) {
 			usb_write_byte((char)STK_INSYNC);
@@ -805,8 +804,7 @@ void read_page()
 	usb_write_byte((char)STK_INSYNC);
 	if (memtype == 'F') {
 		result = flash_read_page(length);
-	}
-	if (memtype == 'E') {
+	} else if (memtype == 'E') {
 		result = eeprom_read_page(length);
 	}
 	usb_write_byte(result);
@@ -1000,6 +998,14 @@ static inline int clamp(int v, int min, int max)
 	return v;
 }
 
+static inline void clear_buffers()
+{
+	data_tx_buffer_i = 0;
+	data_tx_buffer_n = 0;
+	data_rx_buffer_i = 0;
+	data_rx_buffer_n = 0;
+}
+
 void setup()
 {
 	// 16 MHz clock
@@ -1016,10 +1022,7 @@ void setup()
 	TCCR0B = 0x02; // 1/8 prescaling
 	TIMSK0 |= 1 << TOIE0;
 
-	data_rx_buffer_i = 0;
-	data_rx_buffer_n = 0;
-	data_tx_buffer_i = 0;
-	data_tx_buffer_n = 0;
+	clear_buffers();
 
 	usb_init();
 	while (!usb_configured()) {
@@ -1028,7 +1031,8 @@ void setup()
 
 	isp_setup();
 
-
+	sleep_ms(100);
+	clear_buffers();
 }
 
 void loop()
