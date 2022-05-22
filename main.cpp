@@ -36,8 +36,13 @@ uint8_t data_rx_buffer[RX_EP_SIZE];
 uint8_t data_rx_buffer_i;
 uint8_t data_rx_buffer_n;
 
-
-bool tx_enabled = false;
+extern "C" void clear_buffers()
+{
+	data_tx_buffer_i = 0;
+	data_tx_buffer_n = 0;
+	data_rx_buffer_i = 0;
+	data_rx_buffer_n = 0;
+}
 
 void usb_poll_tx()
 {
@@ -52,18 +57,6 @@ void usb_poll_tx()
 
 void usb_poll_rx()
 {
-#if 0
-	while (sizeof(data_rx_buffer) - data_rx_buffer_n >= RX_EP_SIZE) {
-		char tmp[RX_EP_SIZE];
-		uint8_t n = usb_data_rx(tmp, RX_EP_SIZE);
-		if (n == 0) break;
-		for (uint8_t i = 0; i < n; i++) {
-			int j = (data_rx_buffer_i + data_rx_buffer_n) % sizeof(data_rx_buffer);
-			data_rx_buffer[j] = tmp[i];
-			data_rx_buffer_n++;
-		}
-	}
-#else
 	char tmp[RX_EP_SIZE];
 	uint8_t n = sizeof(data_rx_buffer) - data_rx_buffer_n;
 	n = usb_data_rx(tmp, n);
@@ -72,7 +65,6 @@ void usb_poll_rx()
 		data_rx_buffer[j] = tmp[i];
 		data_rx_buffer_n++;
 	}
-#endif
 }
 
 void usb_poll()
@@ -279,7 +271,7 @@ void led_error(bool f)
 
 
 
-bool usb_read_available()
+static inline bool usb_read_available()
 {
 	return data_rx_buffer_n > 0;
 }
@@ -481,6 +473,7 @@ uint8_t getch()
 	}
 	return usb_read_byte();
 }
+
 void fill(int n)
 {
 	for (int x = 0; x < n; x++) {
@@ -779,7 +772,6 @@ uint8_t flash_read(uint8_t hilo, unsigned int addr)
 char flash_read_page(int length)
 {
 	for (int x = 0; x < length; x += 2) {
-		usb_poll_rx();
 		uint8_t low = flash_read(LOW, here);
 		usb_write_byte((char)low);
 		uint8_t high = flash_read(HIGH, here);
@@ -1009,14 +1001,6 @@ static inline int clamp(int v, int min, int max)
 	return v;
 }
 
-static inline void clear_buffers()
-{
-	data_tx_buffer_i = 0;
-	data_tx_buffer_n = 0;
-	data_rx_buffer_i = 0;
-	data_rx_buffer_n = 0;
-}
-
 void setup()
 {
 	// 16 MHz clock
@@ -1041,9 +1025,6 @@ void setup()
 	}
 
 	isp_setup();
-
-	sleep_ms(100);
-	clear_buffers();
 }
 
 void loop()

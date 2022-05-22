@@ -30,7 +30,10 @@
 #define USB_SERIAL_PRIVATE_INCLUDE
 #include <avr/io.h>
 #include "usb.h"
+
 extern void led(char f);
+
+void clear_buffers();
 
 /**************************************************************************
  *
@@ -333,7 +336,8 @@ uint8_t usb_data_rx(char *ptr, uint8_t len)
 	}
 #else
 	uint8_t ueintx = UEINTX;
-	if ((ueintx & (1 << RXOUTI)) && (ueintx & (1 << RWAL))) {
+	if (1) {
+//	if ((ueintx & (1 << RXOUTI)) && (ueintx & (1 << RWAL))) {
 //	if ((ueintx & (1 << RWAL))) {
 //	if (ueintx & (1 << RXOUTI)) {
 		n = UEBCLX;
@@ -548,6 +552,7 @@ void usb_com_vect()
 			static char line[7] = {0x00, 0x4b, 0x00, 0x00, 0, 0, 8}; // default: 19200bps
 			if (bmRequestType == 0x21) { // recv from host
 				if (bRequest == CDC_SET_LINE_CODING) {
+					clear_buffers();
 					usb_wait_receive_out();
 					for (uint8_t i = 0; i < 7; i++) {
 						line[i] = UEDATX;
