@@ -68,8 +68,8 @@ extern void led(char f);
 #define COMM_IN_ENDPOINT 2
 
 #define CDC_DATA_INTERFACE 1
-#define DATA_OUT_ENDPOINT 3
-#define DATA_IN_ENDPOINT 4
+#define DATA_OUT_ENDPOINT 2
+#define DATA_IN_ENDPOINT 3
 
 static const uint8_t PROGMEM endpoint_config_table[] = {
 	COMM_IN_ENDPOINT, EP_TYPE_INTERRUPT_IN, EP_SIZE(COMM_EP_SIZE) | EP_DOUBLE_BUFFER,
@@ -134,7 +134,7 @@ PROGMEM const uint8_t config1_descriptor[] = {
 	1, // USB_CFG_HAVE_INTRIN_ENDPOINT
 	2, // USB_CFG_INTERFACE_CLASS
 	2, // USB_CFG_INTERFACE_SUBCLASS
-	1, // USB_CFG_INTERFACE_PROTOCOL
+	0, // USB_CFG_INTERFACE_PROTOCOL
 	0, // string index for interface
 
 	// CDC Header
@@ -147,7 +147,7 @@ PROGMEM const uint8_t config1_descriptor[] = {
 	4,
 	0x24,
 	2,
-	0x02,
+	0x06,
 
 	// CDC Union
 	5,
@@ -161,7 +161,7 @@ PROGMEM const uint8_t config1_descriptor[] = {
 	COMM_IN_ENDPOINT | 0x80, // IN endpoint
 	0x03, // attrib: Interrupt endpoint
 	COMM_EP_SIZE, 0, // maximum packet size
-	255, // USB_CFG_INTR_POLL_INTERVAL
+	64, // USB_CFG_INTR_POLL_INTERVAL
 
 	// data interface
 
@@ -177,16 +177,16 @@ PROGMEM const uint8_t config1_descriptor[] = {
 
 	7, // sizeof(usbDescrEndpoint)
 	5,
-	DATA_IN_ENDPOINT | 0x80, // IN
+	DATA_OUT_ENDPOINT, // OUT
 	0x02, // bulk
-	TX_EP_SIZE, 0, // maximum packet size
+	RX_EP_SIZE, 0, // maximum packet size
 	0, // USB_CFG_INTR_POLL_INTERVAL
 
 	7, // sizeof(usbDescrEndpoint)
 	5,
-	DATA_OUT_ENDPOINT, // OUT
+	DATA_IN_ENDPOINT | 0x80, // IN
 	0x02, // bulk
-	RX_EP_SIZE, 0, // maximum packet size
+	TX_EP_SIZE, 0, // maximum packet size
 	0, // USB_CFG_INTR_POLL_INTERVAL
 };
 
@@ -548,7 +548,6 @@ void usb_com_vect()
 			static char line[7] = {0x00, 0x4b, 0x00, 0x00, 0, 0, 8}; // default: 19200bps
 			if (bmRequestType == 0x21) { // recv from host
 				if (bRequest == CDC_SET_LINE_CODING) {
-					led(1);
 					usb_wait_receive_out();
 					for (uint8_t i = 0; i < 7; i++) {
 						line[i] = UEDATX;

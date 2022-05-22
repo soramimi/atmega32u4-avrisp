@@ -32,7 +32,7 @@ uint8_t data_tx_buffer[TX_EP_SIZE];
 uint8_t data_tx_buffer_i;
 uint8_t data_tx_buffer_n;
 
-uint8_t data_rx_buffer[RX_EP_SIZE * 4];
+uint8_t data_rx_buffer[RX_EP_SIZE];
 uint8_t data_rx_buffer_i;
 uint8_t data_rx_buffer_n;
 
@@ -52,6 +52,7 @@ void usb_poll_tx()
 
 void usb_poll_rx()
 {
+#if 0
 	while (sizeof(data_rx_buffer) - data_rx_buffer_n >= RX_EP_SIZE) {
 		char tmp[RX_EP_SIZE];
 		uint8_t n = usb_data_rx(tmp, RX_EP_SIZE);
@@ -62,6 +63,16 @@ void usb_poll_rx()
 			data_rx_buffer_n++;
 		}
 	}
+#else
+	char tmp[RX_EP_SIZE];
+	uint8_t n = sizeof(data_rx_buffer) - data_rx_buffer_n;
+	n = usb_data_rx(tmp, n);
+	for (uint8_t i = 0; i < n; i++) {
+		int j = (data_rx_buffer_i + data_rx_buffer_n) % sizeof(data_rx_buffer);
+		data_rx_buffer[j] = tmp[i];
+		data_rx_buffer_n++;
+	}
+#endif
 }
 
 void usb_poll()
