@@ -32,16 +32,11 @@ uint8_t data_tx_buffer[TX_EP_SIZE];
 uint8_t data_tx_buffer_i;
 uint8_t data_tx_buffer_n;
 
-uint8_t data_rx_buffer[RX_EP_SIZE];
-uint8_t data_rx_buffer_i;
-uint8_t data_rx_buffer_n;
 
 extern "C" void clear_buffers()
 {
 	data_tx_buffer_i = 0;
 	data_tx_buffer_n = 0;
-	data_rx_buffer_i = 0;
-	data_rx_buffer_n = 0;
 }
 
 void usb_poll_tx()
@@ -55,22 +50,10 @@ void usb_poll_tx()
 	data_tx_buffer_n = 0;
 }
 
-void usb_poll_rx()
-{
-	char tmp[RX_EP_SIZE];
-	uint8_t n = sizeof(data_rx_buffer) - data_rx_buffer_n;
-	n = usb_data_rx(tmp, n);
-	for (uint8_t i = 0; i < n; i++) {
-		int j = (data_rx_buffer_i + data_rx_buffer_n) % sizeof(data_rx_buffer);
-		data_rx_buffer[j] = tmp[i];
-		data_rx_buffer_n++;
-	}
-}
 
 void usb_poll()
 {
 	usb_poll_tx();
-	usb_poll_rx();
 }
 
 #define PROG_FLICKER true
@@ -268,23 +251,34 @@ void led_error(bool f)
 #define CRC_EOP 0x20 // ok it is a space...
 
 
+extern "C" uint8_t usb_read_available_();
+extern "C" uint8_t usb_read_byte_();
 
+int rx_peek_buffer = -1;
 
-
-static inline bool usb_read_available()
+static inline uint8_t usb_read_available()
 {
-	return data_rx_buffer_n > 0;
+	return usb_read_available_() + (rx_peek_buffer < 0 ? 0 : 1);
 }
 
-char usb_read_byte()
+static inline int usb_peek_byte()
 {
-	if (usb_read_available()) {
-		char c = data_rx_buffer[data_rx_buffer_i];
-		data_rx_buffer_i = (data_rx_buffer_i + 1) % sizeof(data_rx_buffer);
-		data_rx_buffer_n--;
-		return c;
+	if (rx_peek_buffer < 0) {
+		if (usb_read_available_()) {
+			rx_peek_buffer = usb_read_byte_();
+		}
 	}
-	return 0;
+	return rx_peek_buffer;
+}
+
+static inline uint8_t usb_read_byte()
+{
+	if (rx_peek_buffer < 0) {
+		return usb_read_byte_();
+	}
+	uint8_t c = rx_peek_buffer;
+	rx_peek_buffer = -1;
+	return c;
 }
 
 void usb_write_byte(char c)
@@ -311,16 +305,16 @@ void usb_write_string(char const *p)
 	}
 }
 
-void sleep_ms(int ms)
+void msleep(int ms)
 {
 	while (ms > 0) {
+		usb_peek_byte();
 		_delay_ms(1);
-		usb_poll_rx();
 		ms--;
 	}
 }
 
-void sleep_us(int us)
+void usleep(int us)
 {
 	while (us >= 10) {
 		_delay_us(10);
@@ -331,7 +325,6 @@ void sleep_us(int us)
 		us--;
 	}
 }
-
 
 #ifdef USE_HARDWARE_SPI
 #include "SPI.h"
@@ -359,7 +352,7 @@ private:
 };
 #endif // !defined(ARDUINO_API_VERSION)
 
-#if 1
+#if 0
 class SPI {
 public:
 	void begin()
@@ -468,9 +461,7 @@ void reset_target(bool reset)
 
 uint8_t getch()
 {
-	while (!usb_read_available()) {
-		usb_poll_rx();
-	}
+	while (usb_read_available() == 0);
 	return usb_read_byte();
 }
 
@@ -487,9 +478,9 @@ void pulse_pmode(int times)
 	return;
 	do {
 		led_pmode(true);
-		sleep_ms(PTIME);
+		msleep(PTIME);
 		led_pmode(false);
-		sleep_ms(PTIME);
+		msleep(PTIME);
 	} while (times--);
 }
 
@@ -498,9 +489,9 @@ void pulse_error(int times)
 	return;
 	do {
 		led_error(true);
-		sleep_ms(PTIME);
+		msleep(PTIME);
 		led_error(false);
-		sleep_ms(PTIME);
+		msleep(PTIME);
 	} while (times--);
 }
 
@@ -607,15 +598,15 @@ void start_pmode()
 
 	// Pulse RESET after PIN_SCK is low:
 	digitalWrite(PIN_SCK, LOW);
-	sleep_ms(20); // discharge PIN_SCK, value arbitrarily chosen
+	msleep(20); // discharge PIN_SCK, value arbitrarily chosen
 	reset_target(false);
 	// Pulse must be minimum 2 target CPU clock cycles so 100 usec is ok for CPU
 	// speeds above 20 KHz
-	sleep_us(100);
+	usleep(100);
 	reset_target(true);
 
 	// Send the enable programming command:
-	sleep_ms(50); // datasheet: must be > 20 msec
+	msleep(50); // datasheet: must be > 20 msec
 	spi_transaction(0xAC, 0x53, 0x00, 0x00);
 	pmode = 1;
 }
@@ -651,7 +642,7 @@ void commit(unsigned int addr)
 	}
 	spi_transaction(0x4C, (addr >> 8) & 0xFF, addr & 0xFF, 0);
 	if (PROG_FLICKER) {
-		sleep_ms(PTIME);
+		msleep(PTIME);
 		prog_lamp(HIGH);
 	}
 }
@@ -678,7 +669,6 @@ uint8_t write_flash_pages(int length)
 	int x = 0;
 	unsigned int page = current_page();
 	while (x < length) {
-		usb_poll_rx();
 		if (page != current_page()) {
 			commit(page);
 			page = current_page();
@@ -714,7 +704,7 @@ uint8_t write_eeprom_chunk(unsigned int start, unsigned int length)
 	for (unsigned int x = 0; x < length; x++) {
 		unsigned int addr = start + x;
 		spi_transaction(0xC0, (addr >> 8) & 0xFF, addr & 0xFF, buff[x]);
-		sleep_ms(45);
+		msleep(45);
 	}
 	prog_lamp(HIGH);
 	return STK_OK;
@@ -953,7 +943,7 @@ void isp_loop(void)
 
 	// light the heartbeat LED
 //	heartbeat();
-	if (usb_read_available()) {
+	if (usb_read_available() > 0) {
 		avrisp();
 	}
 }

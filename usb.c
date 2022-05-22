@@ -317,43 +317,42 @@ void usb_data_tx(char const *ptr, uint8_t len)
 
 uint8_t usb_data_rx(char *ptr, uint8_t len)
 {
-	if (!usb_configuration) return -1;
 	const uint8_t ep = DATA_OUT_ENDPOINT;
 	uint8_t n = 0;
 	uint8_t intr_state = SREG;
 	cli();
 	UENUM = ep;
-#if 0
-	uint8_t ueintx = UEINTX;
-	if (ueintx & (1 << RXOUTI)) {
-		if (ueintx & (1 << RWAL)) {
-			n = UEBCLX;
-			if (n > len) n = len;
-			for (uint8_t i = 0; i < n; i++) {
-				ptr[i] = UEDATX;
-			}
-		}
+	n = UEBCLX;
+	if (n > len) {
+		n = len;
 	}
-#else
-	uint8_t ueintx = UEINTX;
-	if (1) {
-//	if ((ueintx & (1 << RXOUTI)) && (ueintx & (1 << RWAL))) {
-//	if ((ueintx & (1 << RWAL))) {
-//	if (ueintx & (1 << RXOUTI)) {
-		n = UEBCLX;
-		if (n > len) {
-			n = len;
-		}
-		for (uint8_t i = 0; i < n; i++) {
-			ptr[i] = UEDATX;
-		}
-		if (n > 0 && UEBCLX == 0) {
-			UEINTX = 0x6b;
-		}
+	for (uint8_t i = 0; i < n; i++) {
+		ptr[i] = UEDATX;
 	}
-#endif
+	if (n > 0 && UEBCLX == 0) {
+		UEINTX = 0x6b;
+	}
 	SREG = intr_state;
 	return n;
+}
+
+uint8_t usb_read_available_()
+{
+	if (!usb_configuration) return 0;
+	const uint8_t ep = DATA_OUT_ENDPOINT;
+	uint8_t intr_state = SREG;
+	cli();
+	UENUM = ep;
+	uint8_t n = UEBCLX;
+	SREG = intr_state;
+	return n;
+}
+
+uint8_t usb_read_byte_()
+{
+	uint8_t c;
+	usb_data_rx(&c, 1);
+	return c;
 }
 
 /**************************************************************************
