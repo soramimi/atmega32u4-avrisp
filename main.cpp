@@ -32,6 +32,11 @@ uint8_t data_tx_buffer[TX_EP_SIZE];
 uint8_t data_tx_buffer_i;
 uint8_t data_tx_buffer_n;
 
+uint8_t data_rx_buffer[256];
+int data_rx_buffer_i = 0;
+int data_rx_buffer_n = 0;
+
+
 
 extern "C" void clear_buffers()
 {
@@ -41,7 +46,7 @@ extern "C" void clear_buffers()
 
 void usb_poll_tx()
 {
-	char tmp[TX_EP_SIZE];
+	uint8_t tmp[TX_EP_SIZE];
 	for (uint8_t i = 0; i < data_tx_buffer_n; i++) {
 		tmp[i] = data_tx_buffer[data_tx_buffer_i];
 		data_tx_buffer_i = (data_tx_buffer_i + 1) % TX_EP_SIZE;
@@ -254,31 +259,40 @@ void led_error(bool f)
 extern "C" uint8_t usb_read_available_();
 extern "C" uint8_t usb_read_byte_();
 
-int rx_peek_buffer = -1;
-
-static inline uint8_t usb_read_available()
+static inline int usb_read_available()
 {
-	return usb_read_available_() + (rx_peek_buffer < 0 ? 0 : 1);
+	return data_rx_buffer_n + usb_read_available_();
 }
 
-static inline int usb_peek_byte()
+static inline void usb_peek_byte()
 {
-	if (rx_peek_buffer < 0) {
-		if (usb_read_available_()) {
-			rx_peek_buffer = usb_read_byte_();
+	int space = sizeof(data_rx_buffer) - 1 - data_rx_buffer_n;
+	while (space > 0) {
+		uint8_t tmp[16];
+		int n = sizeof(tmp);
+		n = usb_data_rx(tmp, n < space ? n : space);
+		if (n == 0) break;
+		for (uint8_t i = 0; i < n; i++) {
+			int j = (data_rx_buffer_i + data_rx_buffer_n) % sizeof(data_rx_buffer);
+			data_rx_buffer[j] = tmp[i];
+			data_rx_buffer_n++;
 		}
+		space -= n;
 	}
-	return rx_peek_buffer;
 }
 
 static inline uint8_t usb_read_byte()
 {
-	if (rx_peek_buffer < 0) {
-		return usb_read_byte_();
+	for (int i = 0; i < 2; i++) {
+		if (data_rx_buffer_n > 0) {
+			uint8_t c = data_rx_buffer[data_rx_buffer_i];
+			data_rx_buffer_i = (data_rx_buffer_i + 1) % sizeof(data_rx_buffer);
+			data_rx_buffer_n--;
+			return c;
+		}
+		usb_peek_byte();
 	}
-	uint8_t c = rx_peek_buffer;
-	rx_peek_buffer = -1;
-	return c;
+	return 0;
 }
 
 void usb_write_byte(char c)

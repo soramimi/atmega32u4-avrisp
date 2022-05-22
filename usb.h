@@ -21,8 +21,8 @@ uint8_t usb_configured(void); // is the USB port configured
 //extern uint8_t data_rx_buffer_i;
 //extern uint8_t data_rx_buffer_n;
 
-void usb_data_tx(const char *ptr, uint8_t len); // transmit a character
-uint8_t usb_data_rx(char *ptr, uint8_t len);
+void usb_data_tx(const uint8_t *ptr, uint8_t len); // transmit a character
+uint8_t usb_data_rx(uint8_t *ptr, uint8_t len);
 
 #ifdef __cplusplus
 }

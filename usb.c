@@ -308,14 +308,14 @@ int8_t usb_send_to_host(uint8_t ep, char const *ptr, uint8_t len)
 	return 0;
 }
 
-void usb_data_tx(char const *ptr, uint8_t len)
+void usb_data_tx(uint8_t const *ptr, uint8_t len)
 {
 	if (ptr && len > 0) {
 		usb_send_to_host(DATA_IN_ENDPOINT, ptr, len);
 	}
 }
 
-uint8_t usb_data_rx(char *ptr, uint8_t len)
+uint8_t usb_data_rx(uint8_t *ptr, uint8_t len)
 {
 	const uint8_t ep = DATA_OUT_ENDPOINT;
 	uint8_t n = 0;
