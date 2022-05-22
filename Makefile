@@ -149,3 +149,6 @@ fetch:
 
 fetch2:
 	avrdude -c avrisp -P /dev/ttyUSB0 -b 19200 -p m32u2
+
+write2:
+	avrdude -c avrisp -P /dev/ttyUSB0 -b 19200 -p m32u4 -U hfuse:w:0xd9:m  -U lfuse:w:0x5e:m -U flash:w:ArduinoISP.ino.HEX
