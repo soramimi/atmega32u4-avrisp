@@ -1,47 +1,31 @@
-/*
- * Copyright (c) 2012 Fredrik Atmer, Bathroom Epiphanies Inc
- * http://bathroomepiphanies.com
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- */
-
-// CDC - Copyright (C) 2022 S.Fuchita (@soramimi_jp)
+// Arduino ISP Compatible for ATMEGA32U4
+// Copyright (C) 2022 S.Fuchita (@soramimi_jp)
 
 #include "usb.h"
 #include <avr/interrupt.h>
 #include <string.h>
 
+uint16_t led_setup_count = 0;
+uint16_t led_pmode_count = 0;
+uint16_t led_error_count = 0;
+
+extern "C" uint8_t usb_read_available_();
+extern "C" uint8_t usb_read_byte_();
 
 uint8_t data_tx_buffer[TX_EP_SIZE];
 uint8_t data_tx_buffer_i;
 uint8_t data_tx_buffer_n;
 
 uint8_t data_rx_buffer[256];
-int data_rx_buffer_i = 0;
-int data_rx_buffer_n = 0;
-
-
+int data_rx_buffer_i;
+int data_rx_buffer_n;
 
 extern "C" void clear_buffers()
 {
 	data_tx_buffer_i = 0;
 	data_tx_buffer_n = 0;
+	data_rx_buffer_i = 0;
+	data_rx_buffer_n = 0;
 }
 
 void usb_poll_tx()
@@ -56,215 +40,7 @@ void usb_poll_tx()
 }
 
 
-void usb_poll()
-{
-	usb_poll_tx();
-}
-
-#define PROG_FLICKER true
-
-#define LOW 0
-#define HIGH 1
-#define INPUT 0
-#define OUTPUT 1
-
-
-// Configure SPI clock (in Hz).
-// E.g. for an ATtiny @ 128 kHz: the datasheet states that both the high and low
-// SPI clock pulse must be > 2 CPU cycles, so take 3 cycles i.e. divide target
-// f_cpu by 6:
-//     #define SPI_CLOCK            (128000/6)
-//
-// A clock slow enough for an ATtiny85 @ 1 MHz, is a reasonable default:
-
-#define SPI_CLOCK (1000000 / 6)
-
-// Select hardware or software SPI, depending on SPI clock.
-// Currently only for AVR, for other architectures (Due, Zero,...), hardware SPI
-// is probably too fast anyway.
-
-#if defined(ARDUINO_ARCH_AVR)
-
-#if SPI_CLOCK > (F_CPU / 128)
-#define USE_HARDWARE_SPI
-#endif
-
-#endif
-
-// Configure which pins to use:
-
-// The standard pin configuration.
-#ifndef ARDUINO_HOODLOADER2
-
-#define LED_HB 9
-#define LED_ERR 8
-#define LED_PMODE 7
-
-// Uncomment following line to use the old Uno style wiring
-// (using pin 11, 12 and 13 instead of the SPI header) on Leonardo, Due...
-
-// #define USE_OLD_STYLE_WIRING
-
-//#ifdef USE_OLD_STYLE_WIRING
-
-//#define PIN_MOSI 11
-//#define PIN_MISO 12
-//#define PIN_SCK 13
-
-//#endif
-
-// HOODLOADER2 means running sketches on the ATmega16U2 serial converter chips
-// on Uno or Mega boards. We must use pins that are broken out:
-#else
-
-#define RESET 4
-#define LED_HB 7
-#define LED_ERR 6
-#define LED_PMODE 5
-
-#endif
-
-// By default, use hardware SPI pins:
-//#ifndef PIN_MOSI
-#define PIN_RESET 1
-#define PIN_MOSI 2
-#define PIN_MISO 3
-#define PIN_SCK 4
-
-void pinMode(char pin, char value)
-{
-	switch (pin) {
-	case PIN_RESET:
-		if (value) { DDRB |= 1 << 6; } else { DDRB &= ~(1 << 6); }
-		break;
-	case PIN_MOSI:
-		if (value) { DDRB |= 1 << 2; } else { DDRB &= ~(1 << 2); }
-		break;
-	case PIN_MISO:
-		if (value) { DDRB |= 1 << 3; } else { DDRB &= ~(1 << 3); }
-		break;
-	case PIN_SCK:
-		if (value) { DDRB |= 1 << 1; } else { DDRB &= ~(1 << 1); }
-		break;
-	case LED_HB:
-		break;
-	case LED_ERR:
-		if (value) { DDRB |= 1 << 0; } else { DDRB &= ~(1 << 0); }
-		break;
-	case LED_PMODE:
-		if (value) { DDRD |= 1 << 5; } else { DDRD &= ~(1 << 5); }
-		break;
-	}
-}
-
-void digitalWrite(char pin, char value)
-{
-	switch (pin) {
-	case PIN_RESET:
-		if (value) { PORTB |= 1 << 6; } else { PORTB &= ~(1 << 6); }
-		break;
-	case PIN_MOSI:
-		if (value) { PORTB |= 1 << 2; } else { PORTB &= ~(1 << 2); }
-		break;
-	case PIN_MISO:
-		if (value) { PORTB |= 1 << 3; } else { PORTB &= ~(1 << 3); }
-		break;
-	case PIN_SCK:
-		if (value) { PORTB |= 1 << 1; } else { PORTB &= ~(1 << 1); }
-		break;
-	case LED_HB:
-		break;
-	case LED_ERR:
-		if (value) { PORTB |= 1 << 0; } else { PORTB &= ~(1 << 0); }
-		break;
-	case LED_PMODE:
-		if (value) { PORTD |= 1 << 5; } else { PORTD &= ~(1 << 5); }
-		break;
-	}
-}
-
-bool digitalRead(char pin)
-{
-	switch (pin) {
-	case PIN_RESET:
-		return (PINB >> 6) & 1;
-	case PIN_MOSI:
-		return (PINB >> 2) & 1;
-	case PIN_MISO:
-		return (PINB >> 3) & 1;
-	case PIN_SCK:
-		return (PINB >> 1) & 1;
-	case LED_HB:
-		break;
-	case LED_ERR:
-		return (PINB >> 0) & 1;
-	case LED_PMODE:
-		return (PIND >> 5) & 1;
-	}
-	return false;
-}
-
-void led_pmode(bool f)
-{
-	digitalWrite(LED_PMODE, f ? LOW : HIGH); // low active
-}
-
-void led_error(bool f)
-{
-	digitalWrite(LED_ERR, f ? LOW : HIGH); // low active
-}
-
-// Force bitbanged SPI if not using the hardware SPI pins:
-//#if (PIN_MISO != MISO) || (PIN_MOSI != MOSI) || (PIN_SCK != SCK)
-//#undef USE_HARDWARE_SPI
-//#endif
-
-// Configure the serial port to use.
-//
-// Prefer the USB virtual serial port (aka. native USB port), if the Arduino has one:
-//   - it does not autoreset (except for the magic baud rate of 1200).
-//   - it is more reliable because of USB handshaking.
-//
-// Leonardo and similar have an USB virtual serial port: 'Serial'.
-// Due and Zero have an USB virtual serial port: 'SerialUSB'.
-//
-// On the Due and Zero, 'Serial' can be used too, provided you disable autoreset.
-// To use 'Serial': #define SERIAL Serial
-
-//#ifdef SERIAL_PORT_USBVIRTUAL
-//#define SERIAL SERIAL_PORT_USBVIRTUAL
-//#else
-//#define SERIAL Serial
-//#endif
-
-// Configure the baud rate:
-
-#define BAUDRATE 19200
-// #define BAUDRATE	115200
-// #define BAUDRATE	1000000
-
-#define HWVER 2
-#define SWMAJ 1
-#define SWMIN 18
-
-// STK Definitions
-#define STK_OK 0x10
-#define STK_FAILED 0x11
-#define STK_UNKNOWN 0x12
-#define STK_INSYNC 0x14
-#define STK_NOSYNC 0x15
-#define CRC_EOP 0x20 // ok it is a space...
-
-
-extern "C" uint8_t usb_read_available_();
-extern "C" uint8_t usb_read_byte_();
-
-static inline int usb_read_available()
-{
-	return data_rx_buffer_n + usb_read_available_();
-}
-
-static inline void usb_peek_byte()
+static inline void usb_poll_rx()
 {
 	int space = sizeof(data_rx_buffer) - 1 - data_rx_buffer_n;
 	while (space > 0) {
@@ -281,6 +57,17 @@ static inline void usb_peek_byte()
 	}
 }
 
+void usb_poll()
+{
+	usb_poll_tx();
+	usb_poll_rx();
+}
+
+static inline int usb_read_available()
+{
+	return data_rx_buffer_n + usb_read_available_();
+}
+
 static inline uint8_t usb_read_byte()
 {
 	for (int i = 0; i < 2; i++) {
@@ -290,7 +77,7 @@ static inline uint8_t usb_read_byte()
 			data_rx_buffer_n--;
 			return c;
 		}
-		usb_peek_byte();
+		usb_poll_rx();
 	}
 	return 0;
 }
@@ -303,13 +90,74 @@ void usb_write_byte(char c)
 			data_tx_buffer[i] = c;
 			data_tx_buffer_n++;
 			if (data_tx_buffer_n >= TX_EP_SIZE) {
-				usb_poll();
+				usb_poll_tx();
 			}
 			return;
 		}
 		usb_poll();
 	}
 }
+
+#define LOW 0
+#define HIGH 1
+#define INPUT 0
+#define OUTPUT 1
+
+#define PIN_RESET 6
+#define PIN_MOSI 2
+#define PIN_MISO 3
+#define PIN_SCK 1
+#define LED_PMODE 0
+#define LED_ERROR 5
+
+static inline void pinMode(char pin, char value)
+{
+	if (pin == LED_ERROR) {
+		if (value) { DDRD |= 1 << pin; } else { DDRD &= ~(1 << pin); }
+	} else {
+		if (value) { DDRB |= 1 << pin; } else { DDRB &= ~(1 << pin); }
+	}
+}
+
+static inline void digitalWrite(char pin, char value)
+{
+	if (pin == LED_ERROR) {
+		if (value) { PORTD |= 1 << pin; } else { PORTD &= ~(1 << pin); }
+	} else {
+		if (value) { PORTB |= 1 << pin; } else { PORTB &= ~(1 << pin); }
+	}
+}
+
+static inline bool digitalRead(char pin)
+{
+	if (pin == LED_ERROR) {
+		return (PIND >> pin) & 1;
+	} else {
+		return (PINB >> pin) & 1;
+	}
+}
+
+static inline void led_pmode(bool f)
+{
+	digitalWrite(LED_PMODE, f ? LOW : HIGH); // low active
+}
+
+static inline void led_error(bool f)
+{
+	digitalWrite(LED_ERROR, f ? LOW : HIGH); // low active
+}
+
+#define HWVER 2
+#define SWMAJ 1
+#define SWMIN 18
+
+// STK Definitions
+#define STK_OK 0x10
+#define STK_FAILED 0x11
+#define STK_UNKNOWN 0x12
+#define STK_INSYNC 0x14
+#define STK_NOSYNC 0x15
+#define CRC_EOP 0x20 // ok it is a space...
 
 void usb_write_string(char const *p)
 {
@@ -322,7 +170,7 @@ void usb_write_string(char const *p)
 void msleep(int ms)
 {
 	while (ms > 0) {
-		usb_peek_byte();
+		usb_poll();
 		_delay_ms(1);
 		ms--;
 	}
@@ -340,33 +188,9 @@ void usleep(int us)
 	}
 }
 
+#define USE_HARDWARE_SPI
+
 #ifdef USE_HARDWARE_SPI
-#include "SPI.h"
-#else
-
-#define SPI_MODE0 0x00
-
-#if !defined(ARDUINO_API_VERSION) || ARDUINO_API_VERSION != 10001 // A SPISettings class is declared by ArduinoCore-API 1.0.1
-class SPISettings {
-public:
-	// clock is in Hz
-	SPISettings(uint32_t clock, uint8_t dataMode)
-		: clockFreq(clock)
-	{
-		(void)dataMode;
-	}
-
-	uint32_t getClockFreq() const
-	{
-		return clockFreq;
-	}
-
-private:
-	uint32_t clockFreq;
-};
-#endif // !defined(ARDUINO_API_VERSION)
-
-#if 0
 class SPI {
 public:
 	void begin()
@@ -377,8 +201,8 @@ public:
 		pinMode(PIN_MOSI, OUTPUT);
 		pinMode(PIN_MISO, INPUT);
 
-		// SPI: Mode 0, F_CLK/128
-		SPCR = 0x53;
+		// SPI: Mode 0, F_CLK/64
+		SPCR = 0x52;
 		SPSR = 0x00;
 	}
 
@@ -418,16 +242,14 @@ public:
 
 static SPI SPI;
 
-#endif
-
-int ISPError = 0;
-int pmode = 0;
+int error = 0;
+bool pmode = 0;
 // address for reading and writing, set by 'U' command
 unsigned int here;
 uint8_t buff[256]; // global block storage
 
 #define beget16(addr) (*addr * 256 + *(addr + 1))
-typedef struct param {
+struct parameter_t {
 	uint8_t devicecode;
 	uint8_t revision;
 	uint8_t progtype;
@@ -441,30 +263,9 @@ typedef struct param {
 	uint16_t pagesize;
 	uint16_t eepromsize;
 	uint32_t flashsize;
-} parameter;
+};
 
-parameter param;
-
-// this provides a heartbeat on pin 9, so you can tell the software is running.
-uint8_t hbval = 128;
-int8_t hbdelta = 8;
-//void heartbeat()
-//{
-//	static unsigned long last_time = 0;
-//	unsigned long now = millis();
-//	if ((now - last_time) < 40) {
-//		return;
-//	}
-//	last_time = now;
-//	if (hbval > 192) {
-//		hbdelta = -hbdelta;
-//	}
-//	if (hbval < 32) {
-//		hbdelta = -hbdelta;
-//	}
-//	hbval += hbdelta;
-//	analogWrite(LED_HB, hbval);
-//}
+parameter_t param;
 
 static bool rst_active_high;
 
@@ -486,36 +287,6 @@ void fill(int n)
 	}
 }
 
-#define PTIME 30
-void pulse_pmode(int times)
-{
-	return;
-	do {
-		led_pmode(true);
-		msleep(PTIME);
-		led_pmode(false);
-		msleep(PTIME);
-	} while (times--);
-}
-
-void pulse_error(int times)
-{
-	return;
-	do {
-		led_error(true);
-		msleep(PTIME);
-		led_error(false);
-		msleep(PTIME);
-	} while (times--);
-}
-
-void prog_lamp(bool state)
-{
-	if (PROG_FLICKER) {
-		led_pmode(state);
-	}
-}
-
 uint8_t spi_transaction(uint8_t a, uint8_t b, uint8_t c, uint8_t d)
 {
 	SPI.transfer(a);
@@ -530,7 +301,7 @@ void empty_reply()
 		usb_write_byte((char)STK_INSYNC);
 		usb_write_byte((char)STK_OK);
 	} else {
-		ISPError++;
+		error++;
 		usb_write_byte((char)STK_NOSYNC);
 	}
 }
@@ -542,7 +313,7 @@ void breply(uint8_t b)
 		usb_write_byte((char)b);
 		usb_write_byte((char)STK_OK);
 	} else {
-		ISPError++;
+		error++;
 		usb_write_byte((char)STK_NOSYNC);
 	}
 }
@@ -649,16 +420,11 @@ void flash(uint8_t hilo, unsigned int addr, uint8_t data)
 {
 	spi_transaction(0x40 + 8 * hilo, addr >> 8 & 0xFF, addr & 0xFF, data);
 }
+
 void commit(unsigned int addr)
 {
-	if (PROG_FLICKER) {
-		prog_lamp(LOW);
-	}
 	spi_transaction(0x4C, (addr >> 8) & 0xFF, addr & 0xFF, 0);
-	if (PROG_FLICKER) {
-		msleep(PTIME);
-		prog_lamp(HIGH);
-	}
+	msleep(10);
 }
 
 unsigned int current_page()
@@ -704,7 +470,7 @@ void write_flash(int length)
 		usb_write_byte((char)STK_INSYNC);
 		usb_write_byte((char)write_flash_pages(length));
 	} else {
-		ISPError++;
+		error++;
 		usb_write_byte((char)STK_NOSYNC);
 	}
 }
@@ -714,13 +480,11 @@ uint8_t write_eeprom_chunk(unsigned int start, unsigned int length)
 {
 	// this writes byte-by-byte, page writing may be faster (4 bytes at a time)
 	fill(length);
-	prog_lamp(LOW);
 	for (unsigned int x = 0; x < length; x++) {
 		unsigned int addr = start + x;
 		spi_transaction(0xC0, (addr >> 8) & 0xFF, addr & 0xFF, buff[x]);
 		msleep(45);
 	}
-	prog_lamp(HIGH);
 	return STK_OK;
 }
 
@@ -731,7 +495,7 @@ uint8_t write_eeprom(unsigned int length)
 	unsigned int start = here * 2;
 	unsigned int remaining = length;
 	if (length > param.eepromsize) {
-		ISPError++;
+		error++;
 		return STK_FAILED;
 	}
 	while (remaining > EECHUNK) {
@@ -759,7 +523,7 @@ void program_page()
 			usb_write_byte((char)STK_INSYNC);
 			usb_write_byte(result);
 		} else {
-			ISPError++;
+			error++;
 			usb_write_byte((char)STK_NOSYNC);
 		}
 		return;
@@ -804,7 +568,7 @@ void read_page()
 	length += getch();
 	char memtype = getch();
 	if (CRC_EOP != getch()) {
-		ISPError++;
+		error++;
 		usb_write_byte((char)STK_NOSYNC);
 		return;
 	}
@@ -820,7 +584,7 @@ void read_page()
 void read_signature()
 {
 	if (CRC_EOP != getch()) {
-		ISPError++;
+		error++;
 		usb_write_byte((char)STK_NOSYNC);
 		return;
 	}
@@ -833,17 +597,13 @@ void read_signature()
 	usb_write_byte((char)low);
 	usb_write_byte((char)STK_OK);
 }
-//////////////////////////////////////////
-//////////////////////////////////////////
 
-////////////////////////////////////
-////////////////////////////////////
 void avrisp()
 {
 	uint8_t ch = getch();
 	switch (ch) {
 	case '0': // signon
-		ISPError = 0;
+		error = 0;
 		empty_reply();
 		break;
 	case '1':
@@ -852,7 +612,7 @@ void avrisp()
 			usb_write_string("AVR ISP");
 			usb_write_byte((char)STK_OK);
 		} else {
-			ISPError++;
+			error++;
 			usb_write_byte((char)STK_NOSYNC);
 		}
 		break;
@@ -902,7 +662,7 @@ void avrisp()
 		universal();
 		break;
 	case 'Q': // 0x51
-		ISPError = 0;
+		error = 0;
 		end_pmode();
 		empty_reply();
 		break;
@@ -914,13 +674,13 @@ void avrisp()
 	// expecting a command, not CRC_EOP
 	// this is how we can get back in sync
 	case CRC_EOP:
-		ISPError++;
+		error++;
 		usb_write_byte((char)STK_NOSYNC);
 		break;
 
 	// anything else we will return STK_UNKNOWN
 	default:
-		ISPError++;
+		error++;
 		if (CRC_EOP == getch()) {
 			usb_write_byte((char)STK_UNKNOWN);
 		} else {
@@ -929,80 +689,62 @@ void avrisp()
 	}
 }
 
-void isp_setup()
-{
-//	SERIAL_begin(/*BAUDRATE*/);
-	pinMode(LED_PMODE, OUTPUT);
-	pulse_pmode(2);
-	pinMode(LED_ERR, OUTPUT);
-	pulse_error(2);
-//	pinMode(LED_HB, OUTPUT);
-//	pulse(LED_HB, 2);
-}
-
-void isp_loop(void)
-{
-	// is pmode active?
-	if (pmode) {
-		led_pmode(true);
-	} else {
-		led_pmode(false);
-	}
-	// is there an error?
-	if (ISPError) {
-		led_error(true);
-	} else {
-		led_error(false);
-	}
-
-	// light the heartbeat LED
-//	heartbeat();
-	if (usb_read_available() > 0) {
-		avrisp();
-	}
-}
-
-
-
-
-#define CLOCK 16000000UL
 #define SCALE 125
-static unsigned short _scale = 0;
-static volatile unsigned long _system_tick_count;
-static volatile unsigned long _tick_count;
-static volatile unsigned long _time_s;
-static unsigned short _time_ms;
-uint8_t interval_1ms_flag;
+uint16_t _scale = 0;
 ISR(TIMER0_OVF_vect, ISR_NOBLOCK)
 {
-	_system_tick_count++;
 	_scale += 16;
 	if (_scale >= SCALE) {
 		_scale -= SCALE;
-		_tick_count++;
-		_time_ms++;
-		if (_time_ms >= 1000) {
-			_time_ms = 0;
-			_time_s++;
+		if (led_setup_count > 0) {
+			led_setup_count--;
+			bool f = (led_setup_count & 0xff) > 127;
+			led_pmode(f);
+			led_error(f);
+		} else {
+			if (led_pmode_count > 0) {
+				led_pmode_count--;
+				led_pmode((led_pmode_count & 0xff) > 127);
+			}
+			if (led_error_count > 0) {
+				led_error_count--;
+				led_error((led_error_count & 0xff) > 127);
+			}
 		}
-		interval_1ms_flag = 1;
 	}
 }
 
-extern "C" void led(char f)
+void isp_setup()
 {
-	if (f) {
-		PORTB |= 0x01;
-	} else {
-		PORTB &= ~0x01;
-	}
+	pinMode(LED_PMODE, OUTPUT);
+	pinMode(LED_ERROR, OUTPUT);
+	led_setup_count = 1024;
 }
 
-static inline int clamp(int v, int min, int max)
+void isp_loop()
 {
-	if (v > max) v = max;
-	if (v < min) v = min;
-	return v;
+	if (usb_read_available() > 0) {
+
+		if (pmode) {
+			if (led_pmode_count < 1024) {
+				led_pmode_count += 1024;
+			}
+		}
+
+		avrisp();
+	}
+
+	if (!pmode && led_pmode_count > 1) {
+		led_pmode_count = 1;
+	}
+
+	if (error) {
+		if (led_error_count < 1024) {
+			led_error_count += 1024;
+		}
+	} else if (led_error_count > 1) {
+		led_error_count = 1;
+	}
 }
 
 void setup()
@@ -1018,13 +760,14 @@ void setup()
 	PORTC = 0x00;
 	DDRB = 0x01;
 	DDRC = 0x04;
+
 	TCCR0B = 0x02; // 1/8 prescaling
 	TIMSK0 |= 1 << TOIE0;
 
 	clear_buffers();
 
 	usb_init();
-	while (!usb_configured()) {
+	while (!is_usb_configured()) {
 		_delay_ms(100);
 	}
 
@@ -1034,15 +777,7 @@ void setup()
 void loop()
 {
 	usb_poll();
-#if 1
 	isp_loop();
-#else
-	if (usb_read_available()) {
-		char c = usb_read_byte();
-		usb_write_byte(c);
-		sleep_ms(10);
-	}
-#endif
 }
 
 int main()
@@ -1053,4 +788,3 @@ int main()
 		loop();
 	}
 }
-

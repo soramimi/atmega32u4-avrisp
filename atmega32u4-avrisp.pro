@@ -3,8 +3,7 @@ INCLUDEPATH += /usr/avr/include
 
 HEADERS += \
     usb.h \
-    waitloop.h \
-    avrgpio.h
+    waitloop.h
 
 SOURCES += \
     usb.c \
