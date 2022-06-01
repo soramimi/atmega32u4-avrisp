@@ -51,3 +51,6 @@ write2:
 
 test:
 	ftavr --avr-write-fuse-h 99 --avr-write-fuse-l ff
+
+write3:
+	avrdude -c avrisp -P /dev/ttyACM0 -b 19200 -p m328p -U efuse:w:0xff:m -U hfuse:w:0xd9:m  -U lfuse:w:0x62:m

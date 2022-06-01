@@ -201,8 +201,9 @@ public:
 		pinMode(PIN_MOSI, OUTPUT);
 		pinMode(PIN_MISO, INPUT);
 
-		// SPI: Mode 0, F_CLK/64
-		SPCR = 0x52;
+		// SPI: Mode 0
+		SPCR = 0x53; // F_CLK/128 (125kHz)
+//		SPCR = 0x52; // F_CLK/64  (250kHz)
 		SPSR = 0x00;
 	}
 
