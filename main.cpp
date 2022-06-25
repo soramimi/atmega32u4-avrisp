@@ -31,12 +31,17 @@ extern "C" void clear_buffers()
 void usb_poll_tx()
 {
 	uint8_t tmp[TX_EP_SIZE];
-	for (uint8_t i = 0; i < data_tx_buffer_n; i++) {
-		tmp[i] = data_tx_buffer[data_tx_buffer_i];
-		data_tx_buffer_i = (data_tx_buffer_i + 1) % TX_EP_SIZE;
+	while (1) {
+		int n = data_tx_buffer_n;
+		n = n < sizeof(tmp) ? n : sizeof(tmp);
+		if (n == 0) break;
+		for (uint8_t i = 0; i < data_tx_buffer_n; i++) {
+			tmp[i] = data_tx_buffer[data_tx_buffer_i];
+			data_tx_buffer_i = (data_tx_buffer_i + 1) % sizeof(data_tx_buffer);
+		}
+		usb_data_tx(tmp, n);
+		data_tx_buffer_n -= n;
 	}
-	usb_data_tx(tmp, data_tx_buffer_n);
-	data_tx_buffer_n = 0;
 }
 
 

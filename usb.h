@@ -22,6 +22,8 @@ uint8_t usb_data_rx(uint8_t *ptr, uint8_t len);
 #define TX_EP_SIZE 8
 #define RX_EP_SIZE 8
 
+
+
 #include <avr/interrupt.h>
 #include <avr/io.h>
 #include <avr/pgmspace.h>
