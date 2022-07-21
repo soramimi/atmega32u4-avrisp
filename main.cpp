@@ -94,7 +94,7 @@ void usb_write_byte(char c)
 			int8_t i = (data_tx_buffer_i + data_tx_buffer_n) % sizeof(data_tx_buffer);
 			data_tx_buffer[i] = c;
 			data_tx_buffer_n++;
-			if (data_tx_buffer_n >= TX_EP_SIZE) {
+			if (data_tx_buffer_n >= TX_EP_SIZE - 1) {
 				usb_poll_tx();
 			}
 			return;

@@ -69,8 +69,8 @@ static const uint8_t PROGMEM device_descriptor[] = {
 	18, // bLength
 	1, // bDescriptorType
 	0x00, 0x02, // bcdUSB
-	0, // bDeviceClass
-	0, // bDeviceSubClass
+	2, // bDeviceClass
+	2, // bDeviceSubClass
 	0, // bDeviceProtocol
 	ENDPOINT0_SIZE, // bMaxPacketSize0
 	LSB(VENDOR_ID), MSB(VENDOR_ID), // idVendor
@@ -269,7 +269,7 @@ int8_t usb_send_to_host(uint8_t ep, uint8_t const *ptr, uint8_t len)
 	cli();
 	UENUM = ep;
 	uint8_t timeout = UDFNUML + 50;
-	while (1) {
+//	while (1) {
 		if (UEINTX & (1 << RWAL)) {
 			for (uint8_t i = 0; i < len; i++) {
 				UEDATX = ptr[i];
@@ -277,10 +277,11 @@ int8_t usb_send_to_host(uint8_t ep, uint8_t const *ptr, uint8_t len)
 			usb_release_tx();
 			idle_count = 0;
 			r = 0;
-			break;
+//			break;
 		}
-		if (UDFNUML == timeout) break;
-	}
+//		if (UDFNUML == timeout) break;
+//	}
+done:;
 	SREG = intr_state;
 	return r;
 }
