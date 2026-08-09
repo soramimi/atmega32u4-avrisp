@@ -205,13 +205,13 @@ public:
 		pinMode(PIN_SCK, OUTPUT);
 		pinMode(PIN_MOSI, OUTPUT);
 		pinMode(PIN_MISO, INPUT);
-
+		
 		// SPI: Mode 0
 		SPCR = 0x53; // F_CLK/128 (125kHz)
-//		SPCR = 0x52; // F_CLK/64  (250kHz)
+		//		SPCR = 0x52; // F_CLK/64  (250kHz)
 		SPSR = 0x00;
 	}
-
+	
 	uint8_t transfer(uint8_t b)
 	{
 		SPDR = b;
@@ -230,7 +230,7 @@ public:
 		pinMode(PIN_MOSI, OUTPUT);
 		pinMode(PIN_MISO, INPUT);
 	}
-
+	
 	uint8_t transfer(uint8_t b)
 	{
 		for (uint8_t i = 0; i < 8; ++i) {
@@ -361,13 +361,13 @@ void set_parameters()
 	param.eeprompoll = beget16(&buff[10]);
 	param.pagesize = beget16(&buff[12]);
 	param.eepromsize = beget16(&buff[14]);
-
+	
 	// 32 bits flashsize (big endian)
 	param.flashsize = buff[16] * 0x01000000
-		+ buff[17] * 0x00010000
-		+ buff[18] * 0x00000100
-		+ buff[19];
-
+					  + buff[17] * 0x00010000
+					  + buff[18] * 0x00000100
+					  + buff[19];
+	
 	// AVR devices have active low reset, AT89Sx are active high
 	rst_active_high = (param.devicecode >= 0xe0);
 }
@@ -375,7 +375,7 @@ void set_parameters()
 void start_pmode()
 {
 	// Reset target before driving PIN_SCK or PIN_MOSI
-
+	
 	// SPI.begin() will configure SS as output, so SPI master mode is selected.
 	// We have defined RESET as pin 10, which for many Arduinos is not the SS pin.
 	// So we have to configure RESET as output here,
@@ -383,10 +383,10 @@ void start_pmode()
 	reset_target(true);
 	pinMode(PIN_RESET, OUTPUT);
 	SPI.begin();
-//	SPI.beginTransaction(SPISettings(SPI_CLOCK, SPI_MODE0));
-
+	//	SPI.beginTransaction(SPISettings(SPI_CLOCK, SPI_MODE0));
+	
 	// See AVR datasheets, chapter "SERIAL_PRG Programming Algorithm":
-
+	
 	// Pulse RESET after PIN_SCK is low:
 	digitalWrite(PIN_SCK, LOW);
 	msleep(20); // discharge PIN_SCK, value arbitrarily chosen
@@ -395,7 +395,7 @@ void start_pmode()
 	// speeds above 20 KHz
 	usleep(100);
 	reset_target(true);
-
+	
 	// Send the enable programming command:
 	msleep(50); // datasheet: must be > 20 msec
 	spi_transaction(0xAC, 0x53, 0x00, 0x00);
@@ -404,7 +404,7 @@ void start_pmode()
 
 void end_pmode()
 {
-//	SPI.end();
+	//	SPI.end();
 	// We're about to take the target out of reset so configure SPI pins as input
 	pinMode(PIN_MOSI, INPUT);
 	pinMode(PIN_SCK, INPUT);
@@ -416,7 +416,7 @@ void end_pmode()
 void universal()
 {
 	uint8_t ch;
-
+	
 	fill(4);
 	ch = spi_transaction(buff[0], buff[1], buff[2], buff[3]);
 	breply(ch);
@@ -463,9 +463,9 @@ uint8_t write_flash_pages(int length)
 		flash(HIGH, here, buff[x++]);
 		here++;
 	}
-
+	
 	commit(page);
-
+	
 	return STK_OK;
 }
 
@@ -604,10 +604,9 @@ void read_signature()
 	usb_write_byte((char)STK_OK);
 }
 
-void avrisp()
+void avrisp(uint8_t c)
 {
-	uint8_t ch = getch();
-	switch (ch) {
+	switch (c) {
 	case '0': // signon
 		error = 0;
 		empty_reply();
@@ -645,7 +644,7 @@ void avrisp()
 		here += 256 * getch();
 		empty_reply();
 		break;
-
+		
 	case 0x60: // STK_PROG_FLASH
 		getch(); // low addr
 		getch(); // high addr
@@ -655,15 +654,15 @@ void avrisp()
 		getch(); // data
 		empty_reply();
 		break;
-
+		
 	case 0x64: // STK_PROG_PAGE
 		program_page();
 		break;
-
+		
 	case 0x74: // STK_READ_PAGE 't'
 		read_page();
 		break;
-
+		
 	case 'V': // 0x56
 		universal();
 		break;
@@ -672,18 +671,18 @@ void avrisp()
 		end_pmode();
 		empty_reply();
 		break;
-
+		
 	case 0x75: // STK_READ_SIGN 'u'
 		read_signature();
 		break;
-
+		
 	// expecting a command, not CRC_EOP
 	// this is how we can get back in sync
 	case CRC_EOP:
 		error++;
 		usb_write_byte((char)STK_NOSYNC);
 		break;
-
+		
 	// anything else we will return STK_UNKNOWN
 	default:
 		error++;
@@ -727,23 +726,111 @@ void isp_setup()
 	led_setup_count = 1024;
 }
 
-void isp_loop()
+void bitbang(uint8_t c)
 {
-	if (usb_read_available() > 0) {
+	uint8_t out = '\n';
+	
+	uint8_t pin = 0xff;
+	switch (c & 0x0f) {
+	case 0: pin = PIN_RESET; break;
+	case 1: pin = PIN_SCK;   break;
+	case 2: pin = PIN_MOSI;  break;
+	case 3: pin = PIN_MISO;  break;
+	}
+	
+	if ((c & 0xf0) == 0x80) { // set input
+		pinMode(pin, INPUT);
+		digitalWrite(pin, LOW);
+		bool b = digitalRead(pin);
+		out = b ? '1' : '0';
+	} else if ((c & 0xf0) == 0x90) { // set input with pullup
+		pinMode(pin, INPUT);
+		digitalWrite(pin, HIGH);
+		bool b = digitalRead(pin);
+		out = b ? '1' : '0';
+	} else if ((c & 0xf0) == 0xa0) { // write output low
+		pinMode(pin, OUTPUT);
+		digitalWrite(pin, LOW);
+	} else if ((c & 0xf0) == 0xb0) { // write output high
+		pinMode(pin, OUTPUT);
+		digitalWrite(pin, HIGH);
+	} else if ((c & 0xf0) == 0xc0) { // read all pins
+		out = 0;
+		if (digitalRead(PIN_RESET)) out |= 0x01;
+		if (digitalRead(PIN_SCK))   out |= 0x02;
+		if (digitalRead(PIN_MOSI))  out |= 0x04;
+		if (digitalRead(PIN_MISO))  out |= 0x08;
+		out += out < 10 ? '0' : ('A' - 10);
+	} else if ((c & 0xf0) == 0xd0) { // write all pins
+		digitalWrite(PIN_RESET, c & 0x01);
+		digitalWrite(PIN_SCK,   c & 0x02);
+		digitalWrite(PIN_MOSI,  c & 0x04);
+		digitalWrite(PIN_MISO,  c & 0x08);
+		out = c & 0x0f;
+		out += out < 10 ? '0' : ('A' - 10);
+	} else {
+		out = '?';
+	}
+	
+	usb_write_byte(out);
+}
 
+enum ISPMODE {
+	AVRISP,
+	BITBANG,
+};
+ISPMODE ispmode = AVRISP;
+
+void isp_poll()
+{
+	static char const *state = nullptr;
+	
+	if (usb_read_available() > 0) {
+		
 		if (pmode) {
 			if (led_pmode_count < 1024) {
 				led_pmode_count += 1024;
 			}
 		}
-
-		avrisp();
+		
+		uint8_t c = getch();
+		if (c < 0x80) {
+			if (ispmode != AVRISP) {
+				ispmode = AVRISP;
+				state = nullptr;
+				isp_setup();
+			}
+		}
+		
+		if (ispmode == AVRISP) {
+			if (state) {
+				if (*state == c) {
+					state++;
+					if (!*state) {
+						state = nullptr;
+						usb_write_string("BITBANG\r\n");
+						ispmode = BITBANG;
+					}
+					return;
+				} else {
+					state = nullptr;
+				}
+			} else {
+				if (c == '.') {
+					state = "BITBANG.";
+					return;
+				}
+			}
+			avrisp(c);
+		} else if (ispmode == BITBANG) {
+			bitbang(c);
+		}
 	}
-
+	
 	if (!pmode && led_pmode_count > 1) {
 		led_pmode_count = 1;
 	}
-
+	
 	if (error) {
 		if (led_error_count < 1024) {
 			led_error_count += 1024;
@@ -761,29 +848,29 @@ void setup()
 	// Disable JTAG
 	MCUCR |= 0x80;
 	MCUCR |= 0x80;
-
+	
 	PORTB = 0x00;
 	PORTC = 0x00;
 	DDRB = 0x01;
 	DDRC = 0x04;
-
+	
 	TCCR0B = 0x02; // 1/8 prescaling
 	TIMSK0 |= 1 << TOIE0;
-
+	
 	clear_buffers();
-
+	
 	usb_init();
 	while (!is_usb_configured()) {
 		_delay_ms(100);
 	}
-
+	
 	isp_setup();
 }
 
 void loop()
 {
 	usb_poll();
-	isp_loop();
+	isp_poll();
 }
 
 int main()
