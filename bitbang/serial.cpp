@@ -37,14 +37,14 @@ bool Serial::open(Option *option)
 	
 	option_ = *option;
 #ifdef _WIN32
-	serial_handle_t fd;
+	serial_handle_t serial_fd;
 	DCB dcb;
-	fd = CreateFileA(option_.port.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (fd == INVALID_HANDLE_VALUE) {
+	serial_fd = CreateFileA(option_.port.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (serial_fd == INVALID_HANDLE_VALUE) {
 		return false;
 	}
 
-	GetCommState(fd, &dcb);
+	GetCommState(serial_fd, &dcb);
 	dcb.BaudRate = option_.speed;
 	dcb.fBinary = TRUE;
 	dcb.fParity = FALSE;
@@ -62,9 +62,13 @@ bool Serial::open(Option *option)
 	dcb.ByteSize = 8;
 	dcb.Parity = NOPARITY;
 	dcb.StopBits = ONESTOPBIT;
-	SetCommState(fd, &dcb);
+	if (!SetCommState(serial_fd, &dcb)) {
+		CloseHandle(serial_fd);
+		return false;
+	}
+	PurgeComm(serial_fd, PURGE_RXCLEAR | PURGE_TXCLEAR);
 
-	handle_ = std::make_shared<Handle>(fd);
+	handle_ = std::make_shared<Handle>(serial_fd, nullptr);
 	return true;
 #else
 	int speed;
@@ -78,6 +82,10 @@ bool Serial::open(Option *option)
 		return false;
 	}
 	cancel_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+	if (cancel_fd < 0) {
+		::close(serial_fd);
+		return false;
+	}
 
 	tcgetattr(serial_fd, &attr);
 	option->saveattr = attr;
@@ -130,7 +138,12 @@ bool Serial::open(Option *option)
 	attr.c_cc[VMIN] = 1;
 	attr.c_cc[VTIME] = 0;
 
-	tcsetattr(serial_fd, TCSANOW, &attr);
+	if (tcsetattr(serial_fd, TCSANOW, &attr) != 0) {
+		::close(serial_fd);
+		::close(cancel_fd);
+		return false;
+	}
+	tcflush(serial_fd, TCIOFLUSH);
 
 	handle_ = std::make_shared<Handle>(serial_fd, cancel_fd);
 	return true;
@@ -141,8 +154,11 @@ void Serial::cancel()
 {
 	if (!handle_) return;
 	
+#ifdef _WIN32
+#else
 	uint64_t one = 1;
 	::write(handle_->cancel_fd, &one, sizeof(one));
+#endif
 }
 
 void Serial::close()
@@ -150,11 +166,12 @@ void Serial::close()
 	if (!handle_) return;
 		
 #ifdef _WIN32
-	CloseHandle(handle_->fd);
+	CloseHandle(handle_->serial_fd);
 #else
 	cancel();
 	tcsetattr(handle_->serial_fd, TCSANOW, &option_.saveattr);
 	::close(handle_->serial_fd);
+	::close(handle_->cancel_fd);
 #endif
 	handle_.reset();
 }
@@ -163,11 +180,10 @@ int Serial::write(const void *ptr, int len)
 {
 #ifdef _WIN32
 	DWORD bytes = 0;
-	if (WriteFile(handle_->fd, ptr, len, &bytes, NULL)) {
+	if (WriteFile(handle_->serial_fd, ptr, len, &bytes, NULL)) {
 		return bytes;
 	}
-	DWORD e = GetLastError();
-	return 0;
+	return -1;
 #else
 	return ::write(handle_->serial_fd, ptr, len);
 #endif
@@ -176,11 +192,31 @@ int Serial::write(const void *ptr, int len)
 int Serial::read(void *ptr, int len, int timeout)
 {
 #ifdef _WIN32
-	bytes = 0;
-	if (ReadFile(handle_->fd, ptr, len, &bytes, NULL)) {
+	DWORD bytes = 0;
+	COMMTIMEOUTS cto;
+	if (!GetCommTimeouts(handle_->serial_fd, &cto)) {
+		return -1;
+	}
+	if (timeout < 0) {
+		cto.ReadIntervalTimeout = 0;
+		cto.ReadTotalTimeoutMultiplier = 0;
+		cto.ReadTotalTimeoutConstant = 0;
+	} else if (timeout == 0) {
+		cto.ReadIntervalTimeout = MAXDWORD;
+		cto.ReadTotalTimeoutMultiplier = 0;
+		cto.ReadTotalTimeoutConstant = 0;
+	} else {
+		cto.ReadIntervalTimeout = 0;
+		cto.ReadTotalTimeoutMultiplier = 0;
+		cto.ReadTotalTimeoutConstant = timeout;
+	}
+	if (!SetCommTimeouts(handle_->serial_fd, &cto)) {
+		return -1;
+	}
+	if (ReadFile(handle_->serial_fd, ptr, len, &bytes, NULL)) {
 		return bytes;
 	}
-	return 0;
+	return -1;
 #else
 	pollfd fds[] = {
 		{handle_->serial_fd, POLLIN, 0},

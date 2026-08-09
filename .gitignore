@@ -7,3 +7,5 @@
 *.o
 .vscode/
 *.elf
+*.exe
+*.obj
