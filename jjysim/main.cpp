@@ -351,7 +351,11 @@ void getCurrentDateTime(DateTime *dt)
 	long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
 	time_t t = ms / 1000;
 	struct tm tm;
+#ifdef _WIN32
 	localtime_s(&tm, &t);
+#else
+	localtime_r(&t, &tm);
+#endif
 	dt->year = tm.tm_year + 1900;
 	dt->month = tm.tm_mon + 1;
 	dt->day = tm.tm_mday;
