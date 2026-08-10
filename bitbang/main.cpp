@@ -12,18 +12,9 @@
 
 #ifdef _WIN32
 #else
+#include <assert.h>
 #include <unistd.h>
 #endif
-
-#define PIN_RST  (0)
-#define PIN_SCK  (1)
-#define PIN_MOSI (2)
-#define PIN_MISO (3)
-
-#define CMD_READ        (0x80)
-#define CMD_READ_PULLUP (0x90)
-#define CMD_WRITE_LOW   (0xa0)
-#define CMD_WRITE_HIGH  (0xb0)
 
 constexpr int BITBANG_MODE_TIMEOUT_MS = 10;
 constexpr int PIN_IO_TIMEOUT_MS = 10;
@@ -34,17 +25,39 @@ void msleep(int ms)
 }
 
 class Connection {
+public:
+	static constexpr int PIN_RST  = 0;
+	static constexpr int PIN_SCK  = 1;
+	static constexpr int PIN_MOSI = 2;
+	static constexpr int PIN_MISO = 3;
+	
+	static constexpr int CMD_READ        = 0x80;
+	static constexpr int CMD_READ_PULLUP = 0x90;
+	static constexpr int CMD_WRITE_LOW   = 0xa0;
+	static constexpr int CMD_WRITE_HIGH  = 0xb0;
+		
 private:
 	Serial serial_;
+private:
+	int write(void const *ptr, int len)
+	{
+		return serial_.write(ptr, len);
+	}
+	
+	int read(void *ptr, int len, int timeout)
+	{
+		return serial_.read(ptr, len, timeout);
+	}
 public:
 	Connection()
 	{
 	}
+	
 	~Connection()
 	{
 		close();
 	}
-public:
+	
 	bool open(Serial::Option *option)
 	{
 		return serial_.open(option);
@@ -55,69 +68,336 @@ public:
 		serial_.close();
 	}
 
-	int write(void const *ptr, int len)
+	bool enter_bitbang_mode()
 	{
-		return serial_.write(ptr, len);
+		static constexpr std::string_view command = ".BITBANG.";
+		static constexpr std::string_view expect = "BITBANG\r\n";
+		
+		serial_.write(command.data(), (int)command.size());
+		
+		char buf[expect.size()];
+		int n = serial_.read(buf, (int)sizeof(buf), BITBANG_MODE_TIMEOUT_MS);
+		if (n == (int)expect.size() && memcmp(buf, expect.data(), expect.size()) == 0) {
+			return true;
+		}
+		return false;
 	}
 	
-	int read(void *ptr, int len, int timeout)
+	int read_pin(int pin, bool pullup)
 	{
-		return serial_.read(ptr, len, timeout);
+		char c = char(pullup ? CMD_READ_PULLUP : CMD_READ) | (pin & 0x0f);
+		char d = 0;
+		serial_.write(&c, 1);
+		int n = serial_.read(&d, 1, PIN_IO_TIMEOUT_MS);
+		return n == 1 ? (unsigned char)d : -1;
+	}
+	
+	bool write_pin(int pin, bool v)
+	{
+		char c = char(v ? CMD_WRITE_HIGH : CMD_WRITE_LOW) | (pin & 0x0f);
+		char d;
+		serial_.write(&c, 1);
+		int n = serial_.read(&d, 1, PIN_IO_TIMEOUT_MS);
+		return n == 1;
 	}
 };
 
-bool enter_bitbang_mode(Connection *conn)
-{
-	static constexpr std::string_view command = ".BITBANG.";
-	static constexpr std::string_view expect = "BITBANG\r\n";
-	
-	conn->write(command.data(), (int)command.size());
-
-	char buf[expect.size()];
-	int n = conn->read(buf, (int)sizeof(buf), BITBANG_MODE_TIMEOUT_MS);
-	if (n == (int)expect.size() && memcmp(buf, expect.data(), expect.size()) == 0) {
-		return true;
+// JJY（日本標準時電波）の信号を FTDI ピンで制御するクラス
+class JJY {
+private:
+	Connection *conn_;
+public:
+	JJY(Connection *conn)
+		: conn_(conn)
+	{
+		init();
 	}
-	return false;
+	
+	// 各ピンを出力に設定
+	void init()
+	{
+		assert(conn_);
+		enable(false);
+		freq(false);
+		pulse(false);
+		msleep(10);
+		enable(true);
+	}
+	
+	// 信号出力の有効/無効を切り替え
+	void enable(bool f)
+	{
+		assert(conn_);
+		conn_->write_pin(Connection::PIN_RST, f);
+	}
+	
+	// 周波数選択
+	void freq(bool f)
+	{
+		assert(conn_);
+		conn_->write_pin(Connection::PIN_SCK, f);
+	}
+	
+	// 変調パルス出力（キャリアの ON/OFF）
+	void pulse(bool f)
+	{
+		assert(conn_);
+		conn_->write_pin(Connection::PIN_MOSI, f);
+	}
+};
+
+namespace {
+
+// 年月日から简化ユリウス通日（CJD）へ変換
+unsigned long convert_ymd_to_cjd(int year, int month, int day)
+{
+	if (month < 3) {
+		month += 9;
+		year--;
+	} else {
+		month -= 3;
+	}
+	year += 4800;
+	int c = year / 100;
+	return c * 146097 / 4 + (year - c * 100) * 1461 / 4 + (153 * month + 2) / 5 + day - 32045;
 }
 
-int read_pin(Connection *conn, int pin, bool pullup)
+// 简化ユリウス通日（CJD）から年月日へ逆変換
+void convert_cjd_to_ymd(unsigned long j, int *year, int *month, int *day)
 {
-	char c = char(pullup ? CMD_READ_PULLUP : CMD_READ) | (pin & 0x0f);
-	char d = 0;
-	conn->write(&c, 1);
-	int n = conn->read(&d, 1, PIN_IO_TIMEOUT_MS);
-	return n == 1 ? (unsigned char)d : -1;
+	int y, m, d;
+	y = (j * 4 + 128179) / 146097;
+	d = (j * 4 - y * 146097 + 128179) / 4 * 4 + 3;
+	j = d / 1461;
+	d = (d - j * 1461) / 4 * 5 + 2;
+	m = d / 153;
+	d = (d - m * 153) / 5 + 1;
+	y = (y - 48) * 100 + j;
+	if (m < 10) {
+		m += 3;
+	} else {
+		m -= 9;
+		y++;
+	}
+	*year = y;
+	*month = m;
+	*day = d;
 }
 
-bool write_pin(Connection *conn, int pin, bool v)
+// 64bit 値の偶数パリティ（1 のビット数が奇数なら 1）を計算
+bool parity(uint64_t bits)
 {
-	char c = char(v ? CMD_WRITE_HIGH : CMD_WRITE_LOW) | (pin & 0x0f);
-	char d;
-	conn->write(&c, 1);
-	int n = conn->read(&d, 1, PIN_IO_TIMEOUT_MS);
-	return n == 1;
+	uint64_t l, h;
+	l = bits & 0x5555555555555555;
+	h = (bits & 0xaaaaaaaaaaaaaaaa) >> 1;
+	bits = l + h;
+	l = bits & 0x3333333333333333;
+	h = (bits & 0xcccccccccccccccc) >> 2;
+	bits = l + h;
+	l = bits & 0x0f0f0f0f0f0f0f0f;
+	h = (bits & 0xf0f0f0f0f0f0f0f0) >> 4;
+	bits = l + h;
+	l = bits & 0x00ff00ff00ff00ff;
+	h = (bits & 0xff00ff00ff00ff00) >> 8;
+	bits = l + h;
+	l = bits & 0x0000ffff0000ffff;
+	h = (bits & 0xffff0000ffff0000) >> 16;
+	bits = l + h;
+	l = bits & 0x00000000ffffffff;
+	h = (bits & 0xffffffff00000000) >> 32;
+	bits = l + h;
+	return bits & 1;
+}
+
+// 1秒間に送出する JJY コードの要素
+enum class Playing : uint8_t {
+	Marker, // 位置マーカー（200ms パルス）
+	Value0, // データ 0（800ms パルス）
+	Value1, // データ 1（500ms パルス）
+};
+
+// 日時を保持する構造体
+struct DateTime {
+	int year = 0;
+	int month = 0;
+	int day = 0;
+	int hour = 0;
+	int minute = 0;
+	int second = 0;
+	int ms = 0;
+};
+
+// 指定日時から JJY の 60 フレーム分の変調パターンを生成する
+// JJY フォーマット: 分（8bit）、時（7bit）、年日（9+4bit）、年（8bit）、曜日（3bit）、パリティ等
+void make_data(DateTime const &dt, std::vector<Playing> *out)
+{
+	out->clear();
+	out->reserve(60);
+	
+	unsigned long day = convert_ymd_to_cjd(dt.year, dt.month, dt.day);
+	int wd = (day + 1) % 7; // 0=日曜, ... 6=土曜
+	day = day - convert_ymd_to_cjd(dt.year, 1, 1) + 1;
+	
+	uint64_t bits;
+	auto push = [&](bool v){
+		bits <<= 1;
+		if (v) bits |= 1;
+	};
+	
+	/* 01/52 */ push((dt.minute / 10) & 4);
+	/* 02/51 */ push((dt.minute / 10) & 2);
+	/* 03/50 */ push((dt.minute / 10) & 1);
+	/* 04/49 */ push(false);
+	/* 05/48 */ push((dt.minute % 10) & 8);
+	/* 06/47 */ push((dt.minute % 10) & 4);
+	/* 07/46 */ push((dt.minute % 10) & 2);
+	/* 08/45 */ push((dt.minute % 10) & 1);
+	
+	/* 10/44 */ push(false);
+	/* 11/43 */ push(false);
+	/* 12/42 */ push((dt.hour / 10) & 2);
+	/* 13/41 */ push((dt.hour / 10) & 1);
+	/* 14/40 */ push(false);
+	/* 15/39 */ push((dt.hour % 10) & 8);
+	/* 16/38 */ push((dt.hour % 10) & 4);
+	/* 17/37 */ push((dt.hour % 10) & 2);
+	/* 18/36 */ push((dt.hour % 10) & 1);
+	
+	/* 20/35 */ push(false);
+	/* 21/34 */ push(false);
+	/* 22/33 */ push((day / 100) & 2);
+	/* 23/32 */ push((day / 100) & 1);
+	/* 24/31 */ push(false);
+	/* 25/30 */ push((day / 10 % 10) & 8);
+	/* 26/29 */ push((day / 10 % 10) & 4);
+	/* 27/28 */ push((day / 10 % 10) & 2);
+	/* 28/27 */ push((day / 10 % 10) & 1);
+	
+	/* 30/26 */ push((day % 10) & 8);
+	/* 31/25 */ push((day % 10) & 4);
+	/* 32/24 */ push((day % 10) & 2);
+	/* 33/23 */ push((day % 10) & 1);
+	/* 34/22 */ push(false);
+	/* 35/21 */ push(false);
+	/* 36/20 */ push(false); // p1
+	/* 37/19 */ push(false); // p2
+	/* 38/18 */ push(false);
+	
+	/* 40/17 */ push(false);
+	/* 41/16 */ push((dt.year / 10 % 10) & 8);
+	/* 42/15 */ push((dt.year / 10 % 10) & 4);
+	/* 43/14 */ push((dt.year / 10 % 10) & 2);
+	/* 44/13 */ push((dt.year / 10 % 10) & 1);
+	/* 45/12 */ push((dt.year % 10) & 8);
+	/* 46/11 */ push((dt.year % 10) & 4);
+	/* 47/10 */ push((dt.year % 10) & 2);
+	/* 48/09 */ push((dt.year % 10) & 1);
+	
+	/* 50/08 */ push(wd & 4);
+	/* 51/07 */ push(wd & 2);
+	/* 52/06 */ push(wd & 1);
+	/* 53/05 */ push(false);
+	/* 54/04 */ push(false);
+	/* 55/03 */ push(false);
+	/* 56/02 */ push(false);
+	/* 57/01 */ push(false);
+	/* 58/00 */ push(false);
+	
+	// 偶数パリティを計算して設定
+	if (parity(bits & (0xffLL << 45))) bits |= 1 << 19;
+	if (parity(bits & (0x7fLL << 36))) bits |= 1 << 20;
+	
+	// 60 フレーム（0〜59秒）の変調パターンを生成
+	for (int i = 0; i < 60; i++) {
+		if (i == 0 || i % 10 == 9) {
+			out->push_back(Playing::Marker);
+		} else {
+			bool v = bits & (1LL << 52);
+			out->push_back(v ? Playing::Value1 : Playing::Value0);
+			bits <<= 1;
+		}
+	}
+}
+
+// ローカルタイムゾーンでの現在日時を取得（ミリ秒まで）
+void getCurrentDateTime(DateTime *dt)
+{
+	time_t t = time(nullptr);
+	auto *tm = localtime(&t);
+	std::chrono::system_clock::duration d = std::chrono::system_clock::now().time_since_epoch();
+	long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
+	ms += tm->tm_gmtoff * 1000;
+	dt->ms = ms % 1000;
+	dt->second = ms / 1000 % 60;
+	dt->minute = ms / 60000 % 60;
+	dt->hour = ms / 3600000 % 24;
+	long long j = ms / 86400000 + 2440588;
+	convert_cjd_to_ymd(j, &dt->year, &dt->month, &dt->day);
+}
+
+} // namespace
+
+std::unique_ptr<JJY> jjy;
+
+void jjy_loop()
+{
+	static int sec = -1;
+	static int dur = 0;
+	static bool pulse = false;
+	static std::vector<Playing> playing;
+	
+	DateTime dt;
+	getCurrentDateTime(&dt);
+	
+	auto Print = [&dt](char c){
+		printf("\r" "%d-%02d-%02d %02d:%02d:%02d %c ", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, c);
+		fflush(stdout);
+	};
+	
+	if (dt.second != sec) {
+		// 秒が変わったら、該当フレームのパルスを開始
+		sec = dt.second;
+		if (dt.second == 0 || playing.size() != 60) {
+			make_data(dt, &playing);
+		}
+		
+		pulse = true;
+		jjy->pulse(pulse);
+		
+		switch (playing[dt.second]) {
+		case Playing::Marker: dur = 200; break;
+		case Playing::Value0: dur = 800; break;
+		case Playing::Value1: dur = 500; break;
+		}
+		
+		putchar('\n');		
+		Print('*');
+	} else if (dt.ms < dur) {
+		// パルス幅が終了するまで待機
+		msleep(dur - dt.ms);
+	} else if (pulse) {
+		// パルス OFF にして次の秒まで待機
+		dur = 1000;
+		pulse = false;
+		jjy->pulse(pulse);
+		Print(' ');
+	} else {
+		std::this_thread::yield();
+	}
 }
 
 void main2(Connection *conn)
 {
-	if (!enter_bitbang_mode(conn)) {
+	if (!conn->enter_bitbang_mode()) {
 		fprintf(stderr, "failed to enter bitbang mode\n");
 		return;
 	}
 	
-	for (int i = 0; i < 10; i++) {
-		if (!write_pin(conn, PIN_RST, true)) {
-			fprintf(stderr, "failed to write pin at iteration %d\n", i);
-			return;
-		}
-		msleep(500);
-		if (!write_pin(conn, PIN_RST, false)) {
-			fprintf(stderr, "failed to write pin at iteration %d\n", i);
-			return;
-		}
-		msleep(500);
-	}	
+	jjy = std::make_unique<JJY>(conn);
+	
+	while (1) {
+		jjy_loop();
+	}
 }
 
 int main()
