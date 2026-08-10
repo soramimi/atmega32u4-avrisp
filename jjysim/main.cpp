@@ -9,6 +9,7 @@
 #include <thread>
 #include <vector>
 #include <cstring>
+#include <assert.h>
 
 #ifdef _WIN32
 #else
@@ -333,6 +334,7 @@ void make_data(DateTime const &dt, std::vector<Playing> *out)
 // ローカルタイムゾーンでの現在日時を取得（ミリ秒まで）
 void getCurrentDateTime(DateTime *dt)
 {
+#if 0
 	time_t t = time(nullptr);
 	auto *tm = localtime(&t);
 	std::chrono::system_clock::duration d = std::chrono::system_clock::now().time_since_epoch();
@@ -344,6 +346,20 @@ void getCurrentDateTime(DateTime *dt)
 	dt->hour = ms / 3600000 % 24;
 	long long j = ms / 86400000 + 2440588;
 	convert_cjd_to_ymd(j, &dt->year, &dt->month, &dt->day);
+#else
+	std::chrono::system_clock::duration d = std::chrono::system_clock::now().time_since_epoch();
+	long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
+	time_t t = ms / 1000;
+	struct tm tm;
+	localtime_s(&tm, &t);
+	dt->year = tm.tm_year + 1900;
+	dt->month = tm.tm_mon + 1;
+	dt->day = tm.tm_mday;
+	dt->hour = tm.tm_hour;
+	dt->minute = tm.tm_min;
+	dt->second = tm.tm_sec;
+	dt->ms = ms % 1000;
+#endif
 }
 
 } // namespace
@@ -415,11 +431,6 @@ void main2(JJY::Option const &opts, Connection *conn)
 int main(int argc, char **argv)
 {
 	JJY::Option opts;
-#ifdef _WIN32
-	opt.port = "\\\\.\\COM1";
-#else
-	opts.serial_options.port = "/dev/ttyACM0";
-#endif
 	
 	int argi = 1;
 	while (argi < argc) {
@@ -440,7 +451,7 @@ int main(int argc, char **argv)
 			}
 		} else if (arg == "-f") {
 			if (argi < argc) {
-				std::string_view f = argv[argi];
+				std::string_view f = argv[argi++];
 				if (f == "40") {
 					opts.freq = JJY::FREQ_40KHZ;
 				} else if (f == "60") {
@@ -452,7 +463,16 @@ int main(int argc, char **argv)
 			}
 		}
 	}
-	
+
+#ifdef _WIN32
+	if (strncmp(opts.serial_options.port.c_str(), "COM", 3) == 0) {
+		opts.serial_options.port = "\\\\.\\" + opts.serial_options.port;
+	}
+#else
+#endif
+	if (opts.serial_options.port.empty()) {
+	}
+
 	Connection conn;
 	opts.serial_options.speed = 115200;
 	if (!conn.open(&opts.serial_options)) {
