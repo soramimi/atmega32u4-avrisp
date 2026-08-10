@@ -104,11 +104,22 @@ public:
 
 // JJY（日本標準時電波）の信号を FTDI ピンで制御するクラス
 class JJY {
+public:
+	enum Freq {
+		FREQ_40KHZ = 0,
+		FREQ_60KHZ = 1,
+	};
+	struct Option {
+		Serial::Option serial_options;
+		Freq freq = FREQ_40KHZ;
+	};
 private:
+	JJY::Option const &opts_;
 	Connection *conn_;
 public:
-	JJY(Connection *conn)
-		: conn_(conn)
+	JJY(JJY::Option const &opts, Connection *conn)
+		: opts_(opts)
+		, conn_(conn)
 	{
 		init();
 	}
@@ -118,7 +129,7 @@ public:
 	{
 		assert(conn_);
 		enable(false);
-		freq(false);
+		freq(FREQ_40KHZ);
 		pulse(false);
 		msleep(10);
 		enable(true);
@@ -132,7 +143,7 @@ public:
 	}
 	
 	// 周波数選択
-	void freq(bool f)
+	void freq(Freq f)
 	{
 		assert(conn_);
 		conn_->write_pin(Connection::PIN_SCK, f);
@@ -363,15 +374,16 @@ void jjy_loop()
 		
 		pulse = true;
 		jjy->pulse(pulse);
+		char c = ' ';
 		
 		switch (playing[dt.second]) {
-		case Playing::Marker: dur = 200; break;
-		case Playing::Value0: dur = 800; break;
-		case Playing::Value1: dur = 500; break;
+		case Playing::Marker: dur = 200; c = 'M'; break;
+		case Playing::Value0: dur = 800; c = '0'; break;
+		case Playing::Value1: dur = 500; c = '1'; break;
 		}
 		
 		putchar('\n');		
-		Print('*');
+		Print(c);
 	} else if (dt.ms < dur) {
 		// パルス幅が終了するまで待機
 		msleep(dur - dt.ms);
@@ -386,35 +398,68 @@ void jjy_loop()
 	}
 }
 
-void main2(Connection *conn)
+void main2(JJY::Option const &opts, Connection *conn)
 {
 	if (!conn->enter_bitbang_mode()) {
 		fprintf(stderr, "failed to enter bitbang mode\n");
 		return;
 	}
 	
-	jjy = std::make_unique<JJY>(conn);
+	jjy = std::make_unique<JJY>(opts, conn);
 	
 	while (1) {
 		jjy_loop();
 	}
 }
 
-int main()
+int main(int argc, char **argv)
 {
-	Serial::Option opt;
-	Connection conn;
+	JJY::Option opts;
 #ifdef _WIN32
-	opt.port = "\\\\.\\COM4";
+	opt.port = "\\\\.\\COM1";
 #else
-	opt.port = "/dev/ttyACM0";
+	opts.serial_options.port = "/dev/ttyACM0";
 #endif
-	opt.speed = 115200;
-	if (!conn.open(&opt)) {
-		fprintf(stderr, "failed to open %s\n", opt.port.c_str());
+	
+	int argi = 1;
+	while (argi < argc) {
+		std::string_view arg = argv[argi++];
+		if (arg == "-p") {
+			if (argi < argc) {
+				opts.serial_options.port = argv[argi++];
+			} else {
+				fprintf(stderr, "-p requires a port name\n");
+				return 1;
+			}
+		} else if (arg == "-s") {
+			if (argi < argc) {
+				opts.serial_options.speed = atoi(argv[argi++]);
+			} else {
+				fprintf(stderr, "-s requires a speed value\n");
+				return 1;
+			}
+		} else if (arg == "-f") {
+			if (argi < argc) {
+				std::string_view f = argv[argi];
+				if (f == "40") {
+					opts.freq = JJY::FREQ_40KHZ;
+				} else if (f == "60") {
+					opts.freq = JJY::FREQ_60KHZ;
+				}
+			} else {
+				fprintf(stderr, "-f requires a frequency value (40 or 60)\n");
+				return 1;
+			}
+		}
+	}
+	
+	Connection conn;
+	opts.serial_options.speed = 115200;
+	if (!conn.open(&opts.serial_options)) {
+		fprintf(stderr, "failed to open %s\n", opts.serial_options.port.c_str());
 		return 1;
 	}
-	main2(&conn);
+	main2(opts, &conn);
 	conn.close();
 	return 0;
 }
