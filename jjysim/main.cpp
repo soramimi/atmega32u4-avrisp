@@ -426,6 +426,7 @@ void main2(JJY::Option const &opts, Connection *conn)
 	}
 	
 	jjy = std::make_unique<JJY>(opts, conn);
+	jjy->freq(opts.freq);
 	
 	while (1) {
 		jjy_loop();
@@ -435,6 +436,7 @@ void main2(JJY::Option const &opts, Connection *conn)
 int main(int argc, char **argv)
 {
 	JJY::Option opts;
+	opts.serial_options.speed = 115200;
 	
 	int argi = 1;
 	while (argi < argc) {
@@ -474,11 +476,8 @@ int main(int argc, char **argv)
 	}
 #else
 #endif
-	if (opts.serial_options.port.empty()) {
-	}
 
 	Connection conn;
-	opts.serial_options.speed = 115200;
 	if (!conn.open(&opts.serial_options)) {
 		fprintf(stderr, "failed to open %s\n", opts.serial_options.port.c_str());
 		return 1;
