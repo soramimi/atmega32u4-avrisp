@@ -199,25 +199,12 @@ void convert_cjd_to_ymd(unsigned long j, int *year, int *month, int *day)
 // 64bit 値の偶数パリティ（1 のビット数が奇数なら 1）を計算
 bool parity(uint64_t bits)
 {
-	uint64_t l, h;
-	l = bits & 0x5555555555555555;
-	h = (bits & 0xaaaaaaaaaaaaaaaa) >> 1;
-	bits = l + h;
-	l = bits & 0x3333333333333333;
-	h = (bits & 0xcccccccccccccccc) >> 2;
-	bits = l + h;
-	l = bits & 0x0f0f0f0f0f0f0f0f;
-	h = (bits & 0xf0f0f0f0f0f0f0f0) >> 4;
-	bits = l + h;
-	l = bits & 0x00ff00ff00ff00ff;
-	h = (bits & 0xff00ff00ff00ff00) >> 8;
-	bits = l + h;
-	l = bits & 0x0000ffff0000ffff;
-	h = (bits & 0xffff0000ffff0000) >> 16;
-	bits = l + h;
-	l = bits & 0x00000000ffffffff;
-	h = (bits & 0xffffffff00000000) >> 32;
-	bits = l + h;
+	bits ^= bits >> 32;
+	bits ^= bits >> 16;
+	bits ^= bits >> 8;
+	bits ^= bits >> 4;
+	bits ^= bits >> 2;
+	bits ^= bits >> 1;
 	return bits & 1;
 }
 
