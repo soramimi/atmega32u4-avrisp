@@ -49,6 +49,24 @@ private:
 	{
 		return serial_.read(ptr, len, timeout);
 	}
+	bool sync()
+	{
+		int n;
+		char tmp[100];
+		for (int i = 0; i < 50; i++) {
+			tmp[0] = '0';
+			serial_.write(tmp, 1);
+			n = serial_.read(tmp, sizeof(tmp), BITBANG_MODE_TIMEOUT_MS);
+			if (n == 0) {
+				tmp[0] = ' ';
+				serial_.write(tmp, 1);
+				n = serial_.read(tmp, sizeof(tmp), BITBANG_MODE_TIMEOUT_MS);
+				if (n == 2 && tmp[0] == 0x14 && tmp[1] == 0x10) return true; // OK
+			}
+			msleep(10);
+		}
+		return false;
+	}
 public:
 	Connection()
 	{
@@ -74,13 +92,16 @@ public:
 		static constexpr std::string_view command = ".BITBANG.";
 		static constexpr std::string_view expect = "BITBANG\r\n";
 		
-		serial_.write(command.data(), (int)command.size());
-		
-		char buf[expect.size()];
-		int n = serial_.read(buf, (int)sizeof(buf), BITBANG_MODE_TIMEOUT_MS);
-		if (n == (int)expect.size() && memcmp(buf, expect.data(), expect.size()) == 0) {
-			return true;
+		if (sync()) {
+			serial_.write(command.data(), (int)command.size());
+			
+			char buf[expect.size()];
+			int n = serial_.read(buf, (int)sizeof(buf), BITBANG_MODE_TIMEOUT_MS);
+			if (n == (int)expect.size() && memcmp(buf, expect.data(), expect.size()) == 0) {
+				return true;
+			}
 		}
+		
 		return false;
 	}
 	
@@ -130,7 +151,7 @@ public:
 	{
 		assert(conn_);
 		enable(false);
-		freq(FREQ_40KHZ);
+		freq(opts_.freq);
 		pulse(false);
 		msleep(10);
 		enable(true);
@@ -420,6 +441,21 @@ void main2(JJY::Option const &opts, Connection *conn)
 	}
 }
 
+void test(JJY::Option const &opts, Connection *conn)
+{
+	if (!conn->enter_bitbang_mode()) {
+		fprintf(stderr, "failed to enter bitbang mode\n");
+		return;
+	}
+	
+	conn->write_pin(Connection::PIN_RST, true);
+	conn->write_pin(Connection::PIN_SCK, false);
+	conn->write_pin(Connection::PIN_MOSI, true);
+	conn->write_pin(Connection::PIN_SCK, true);
+	conn->write_pin(Connection::PIN_SCK, false);
+	conn->write_pin(Connection::PIN_MOSI, false);
+}
+
 int main(int argc, char **argv)
 {
 	JJY::Option opts;
@@ -469,7 +505,13 @@ int main(int argc, char **argv)
 		fprintf(stderr, "failed to open %s\n", opts.serial_options.port.c_str());
 		return 1;
 	}
-	main2(opts, &conn);
+	
+	if (1) {
+		main2(opts, &conn);
+	} else {
+		test(opts, &conn);
+	}
+	
 	conn.close();
 	return 0;
 }

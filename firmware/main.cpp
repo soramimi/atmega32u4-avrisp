@@ -726,6 +726,18 @@ void isp_setup()
 	led_setup_count = 1024;
 }
 
+void bb_setup()
+{
+	auto SetInput = [](uint8_t pin) {
+		pinMode(pin, INPUT);
+		digitalWrite(pin, LOW);
+	};
+	SetInput(PIN_RESET);
+	SetInput(PIN_SCK);
+	SetInput(PIN_MOSI);
+	SetInput(PIN_MISO);
+}
+
 void bitbang(uint8_t c)
 {
 	uint8_t out = '\n';
@@ -810,6 +822,7 @@ void isp_poll()
 						state = nullptr;
 						usb_write_string("BITBANG\r\n");
 						ispmode = BITBANG;
+						bb_setup();
 					}
 					return;
 				} else {

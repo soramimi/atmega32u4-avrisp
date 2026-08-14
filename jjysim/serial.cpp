@@ -224,6 +224,7 @@ int Serial::read(void *ptr, int len, int timeout)
 	};
 	while (1) {
 		int r = poll(fds, 2, timeout);
+		if (r == 0) return 0; // timeout
 		if (r < 0) {
 			if (errno == EINTR) continue;
 			break;
